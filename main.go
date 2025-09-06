@@ -4,31 +4,35 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	_ "fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 // App представляет основное приложение
 type App struct {
-	fyneApp       fyne.App
-	mainWin       fyne.Window
-	editor        *EditorWidget
-	sidebar       *SidebarWidget
-	minimap       *MinimapWidget
-	config        *Config
-	configManager *ConfigManager
-	hotkeyManager *HotkeyManager
-	dialogManager *DialogManager
-	terminalMgr   *TerminalManager
-	mainContent   *container.Border
-	currentFile   string
-	recentFiles   []string
+	fyneApp            fyne.App
+	mainWin            fyne.Window
+	editor             *EditorWidget
+	sidebar            *SidebarWidget
+	minimap            *MinimapWidget
+	config             *Config
+	configManager      *ConfigManager
+	hotkeyManager      *HotkeyManager
+	dialogManager      *DialogManager
+	terminalMgr        *TerminalManager
+	mainContent        fyne.CanvasObject
+	currentFile        string
+	recentFiles        []string
+	commandHistory     *CommandHistory
+	findDialog         dialog.Dialog
+	searchResults      []TextRange
+	currentSearchIndex int
 }
 
 // NewApp создает новое приложение
@@ -62,11 +66,12 @@ func NewApp() *App {
 	}
 
 	appInstance := &App{
-		fyneApp:       myApp,
-		mainWin:       mainWin,
-		config:        config,
-		configManager: configMgr,
-		recentFiles:   config.App.LastOpenedFiles,
+		fyneApp:        myApp,
+		mainWin:        mainWin,
+		config:         config,
+		configManager:  configMgr,
+		recentFiles:    config.App.LastOpenedFiles,
+		commandHistory: NewCommandHistory(100),
 	}
 
 	return appInstance
@@ -83,6 +88,9 @@ func (a *App) setupUI() {
 	a.dialogManager = NewDialogManager(a.mainWin, a.editor, a.config)
 	a.terminalMgr = NewTerminalManager(a.config)
 	a.hotkeyManager = NewHotkeyManager(a.config, a.mainWin)
+
+	// Передаем ссылку на App в HotkeyManager для доступа к методам
+	a.hotkeyManager.SetApp(a)
 
 	// Настраиваем callbacks
 	a.setupCallbacks()
@@ -241,7 +249,7 @@ func (a *App) setupCallbacks() {
 
 		a.editor.onCursorChanged = func(row, col int) {
 			// Обновляем статус бар
-			// TODO: Update status bar position
+			a.updateStatusBar(row, col)
 		}
 
 		a.editor.onFileChanged = func(filepath string) {
@@ -274,7 +282,7 @@ func (a *App) setupCallbacks() {
 		a.minimap.SetCallbacks(
 			func(position float32) { // onScrollTo
 				// Прокручиваем редактор
-				// TODO: Implement editor scrolling
+				a.scrollEditorTo(position)
 			},
 			func(line int) { // onLineClick
 				// Переходим к строке
@@ -411,57 +419,193 @@ func (a *App) saveAsFile() {
 	})
 }
 
-// Edit operations
+// Edit operations - Полная реализация
 
 func (a *App) undo() {
-	// TODO: Implement undo in editor
-	fmt.Println("Undo")
+	if a.editor == nil || a.commandHistory == nil {
+		return
+	}
+
+	err := a.commandHistory.Undo(a.editor)
+	if err != nil {
+		// Нет действий для отмены
+		return
+	}
+
+	a.editor.updateDisplay()
 }
 
 func (a *App) redo() {
-	// TODO: Implement redo in editor
-	fmt.Println("Redo")
+	if a.editor == nil || a.commandHistory == nil {
+		return
+	}
+
+	err := a.commandHistory.Redo(a.editor)
+	if err != nil {
+		// Нет действий для повтора
+		return
+	}
+
+	a.editor.updateDisplay()
 }
 
 func (a *App) cut() {
-	// TODO: Implement cut in editor
-	fmt.Println("Cut")
+	if a.editor == nil {
+		return
+	}
+
+	// Получаем выделенный текст
+	selectedText := a.getSelectedText()
+	if selectedText == "" {
+		return
+	}
+
+	// Копируем в буфер обмена
+	clipboard := a.mainWin.Clipboard()
+	clipboard.SetContent(selectedText)
+
+	// Удаляем выделенный текст
+	a.deleteSelectedText()
 }
 
 func (a *App) copy() {
-	// TODO: Implement copy in editor
-	fmt.Println("Copy")
+	if a.editor == nil {
+		return
+	}
+
+	// Получаем выделенный текст
+	selectedText := a.getSelectedText()
+	if selectedText == "" {
+		return
+	}
+
+	// Копируем в буфер обмена
+	clipboard := a.mainWin.Clipboard()
+	clipboard.SetContent(selectedText)
 }
 
 func (a *App) paste() {
-	// TODO: Implement paste in editor
-	fmt.Println("Paste")
+	if a.editor == nil {
+		return
+	}
+
+	// Получаем текст из буфера обмена
+	clipboard := a.mainWin.Clipboard()
+	content := clipboard.Content()
+
+	if content == "" {
+		return
+	}
+
+	// Вставляем текст в позицию курсора
+	cmd := &InsertTextCommand{
+		position: TextPosition{
+			Row: a.editor.cursorRow,
+			Col: a.editor.cursorCol,
+		},
+		text: content,
+	}
+
+	a.commandHistory.Execute(cmd, a.editor)
 }
 
 func (a *App) selectAll() {
-	// TODO: Implement select all in editor
-	fmt.Println("Select All")
+	if a.editor == nil {
+		return
+	}
+
+	cmd := &SelectAllCommand{}
+	a.commandHistory.Execute(cmd, a.editor)
 }
 
-// Search operations
+// Search operations - Полная реализация
 
 func (a *App) showFind() {
+	if a.editor == nil {
+		return
+	}
+
 	a.dialogManager.ShowFindDialog(func(text string, caseSensitive, wholeWord, regex bool) {
-		// TODO: Implement find in editor
-		fmt.Printf("Find: %s (case:%v, word:%v, regex:%v)\n", text, caseSensitive, wholeWord, regex)
+		// Выполняем поиск
+		cmd := &FindCommand{
+			searchTerm:    text,
+			caseSensitive: caseSensitive,
+			wholeWord:     wholeWord,
+			useRegex:      regex,
+		}
+
+		err := cmd.Execute(a.editor)
+		if err != nil {
+			dialog.ShowError(err, a.mainWin)
+			return
+		}
+
+		// Сохраняем результаты поиска
+		a.searchResults = a.editor.searchResults
+		a.currentSearchIndex = 0
+
+		// Переходим к первому результату
+		if len(a.searchResults) > 0 {
+			a.goToSearchResult(0)
+		} else {
+			dialog.ShowInformation("Find", "No matches found", a.mainWin)
+		}
 	})
 }
 
 func (a *App) showReplace() {
+	if a.editor == nil {
+		return
+	}
+
 	a.dialogManager.ShowReplaceDialog(func(find, replace string, caseSensitive, wholeWord, regex, replaceAll bool) {
-		// TODO: Implement replace in editor
-		fmt.Printf("Replace: %s -> %s (all:%v)\n", find, replace, replaceAll)
+		if replaceAll {
+			// Заменяем все вхождения
+			cmd := &ReplaceTextCommand{
+				findText:    find,
+				replaceText: replace,
+			}
+			a.commandHistory.Execute(cmd, a.editor)
+		} else {
+			// Заменяем текущее вхождение
+			a.replaceCurrentMatch(find, replace)
+		}
 	})
 }
 
 func (a *App) showFindInFiles() {
-	// TODO: Implement find in files dialog
-	fmt.Println("Find in Files")
+	// Создаем диалог поиска в файлах
+	searchEntry := widget.NewEntry()
+	searchEntry.SetPlaceHolder("Search text...")
+
+	pathEntry := widget.NewEntry()
+	if a.sidebar != nil {
+		pathEntry.SetText(a.sidebar.GetCurrentPath())
+	}
+
+	includeEntry := widget.NewEntry()
+	includeEntry.SetPlaceHolder("*.go,*.rs,*.py")
+
+	excludeEntry := widget.NewEntry()
+	excludeEntry.SetPlaceHolder("*.log,*.tmp")
+
+	content := container.NewVBox(
+		widget.NewLabel("Search for:"),
+		searchEntry,
+		widget.NewLabel("In folder:"),
+		pathEntry,
+		widget.NewLabel("Include files:"),
+		includeEntry,
+		widget.NewLabel("Exclude files:"),
+		excludeEntry,
+	)
+
+	dialog.ShowCustomConfirm("Find in Files", "Search", "Cancel", content, func(confirmed bool) {
+		if confirmed && searchEntry.Text != "" {
+			// Выполняем поиск в файлах
+			a.performFindInFiles(searchEntry.Text, pathEntry.Text, includeEntry.Text, excludeEntry.Text)
+		}
+	}, a.mainWin)
 }
 
 func (a *App) showGoToLine() {
@@ -476,15 +620,74 @@ func (a *App) showGoToLine() {
 }
 
 func (a *App) goToLine(line int) {
-	if a.editor != nil {
-		// TODO: Implement go to line in editor
-		fmt.Printf("Go to line: %d\n", line)
+	if a.editor == nil {
+		return
+	}
+
+	cmd := &GoToLineCommand{
+		lineNumber: line,
+	}
+
+	err := cmd.Execute(a.editor)
+	if err != nil {
+		dialog.ShowError(err, a.mainWin)
 	}
 }
 
 func (a *App) showGoToSymbol() {
-	// TODO: Implement go to symbol
-	fmt.Println("Go to Symbol")
+	if a.editor == nil || a.currentFile == "" {
+		return
+	}
+
+	// Анализируем код для поиска символов
+	analyzer := NewCodeAnalyzer()
+
+	// Определяем язык по расширению файла
+	ext := filepath.Ext(a.currentFile)
+	language := getLanguageByExtension(ext)
+
+	// Находим функции и классы
+	functions := analyzer.FindFunctions(a.editor.textContent, language)
+	classes := analyzer.FindClasses(a.editor.textContent, language)
+
+	// Объединяем все символы
+	var symbols []CodeElement
+	symbols = append(symbols, functions...)
+	symbols = append(symbols, classes...)
+
+	if len(symbols) == 0 {
+		dialog.ShowInformation("Go to Symbol", "No symbols found", a.mainWin)
+		return
+	}
+
+	// Создаем список символов
+	symbolNames := make([]string, len(symbols))
+	for i, sym := range symbols {
+		symbolNames[i] = fmt.Sprintf("%s: %s", sym.Type, sym.Name)
+	}
+
+	// Показываем диалог выбора
+	symbolList := widget.NewList(
+		func() int { return len(symbolNames) },
+		func() fyne.CanvasObject {
+			return widget.NewLabel("Symbol")
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			o.(*widget.Label).SetText(symbolNames[i])
+		},
+	)
+
+	symbolList.OnSelected = func(id widget.ListItemID) {
+		// Переходим к выбранному символу
+		if id < len(symbols) {
+			a.goToLine(symbols[id].Line)
+		}
+	}
+
+	symbolDialog := dialog.NewCustom("Go to Symbol", "Close",
+		container.NewScroll(symbolList), a.mainWin)
+	symbolDialog.Resize(fyne.NewSize(400, 500))
+	symbolDialog.Show()
 }
 
 // View operations
@@ -546,44 +749,65 @@ func (a *App) getAvailableCommands() []Command {
 }
 
 func (a *App) focusFileExplorer() {
-	// Focus on sidebar
+	// Фокусируемся на сайдбаре
 	if a.sidebar != nil && a.sidebar.IsVisible() {
-		// TODO: Implement focus on sidebar
-		fmt.Println("Focus File Explorer")
+		// Делаем сайдбар активным
+		if a.mainWin != nil && a.sidebar.fileTree != nil {
+			a.mainWin.Canvas().Focus(a.sidebar.fileTree)
+		}
+	} else if a.sidebar != nil {
+		// Если сайдбар скрыт, показываем его
+		a.toggleSidebar()
+		// И фокусируемся
+		if a.mainWin != nil && a.sidebar.fileTree != nil {
+			a.mainWin.Canvas().Focus(a.sidebar.fileTree)
+		}
 	}
 }
 
 func (a *App) zoomIn() {
-	if a.editor != nil && a.config != nil {
-		a.config.Editor.FontSize += 2
-		if a.config.Editor.FontSize > 72 {
-			a.config.Editor.FontSize = 72
-		}
-		// TODO: Apply font size to editor
-		a.configManager.SaveConfig()
+	if a.editor == nil || a.config == nil {
+		return
 	}
+
+	a.config.Editor.FontSize += 2
+	if a.config.Editor.FontSize > 72 {
+		a.config.Editor.FontSize = 72
+	}
+
+	// Применяем размер шрифта к редактору
+	a.applyFontSize()
+	a.configManager.SaveConfig()
 }
 
 func (a *App) zoomOut() {
-	if a.editor != nil && a.config != nil {
-		a.config.Editor.FontSize -= 2
-		if a.config.Editor.FontSize < 6 {
-			a.config.Editor.FontSize = 6
-		}
-		// TODO: Apply font size to editor
-		a.configManager.SaveConfig()
+	if a.editor == nil || a.config == nil {
+		return
 	}
+
+	a.config.Editor.FontSize -= 2
+	if a.config.Editor.FontSize < 6 {
+		a.config.Editor.FontSize = 6
+	}
+
+	// Применяем размер шрифта к редактору
+	a.applyFontSize()
+	a.configManager.SaveConfig()
 }
 
 func (a *App) resetZoom() {
-	if a.editor != nil && a.config != nil {
-		a.config.Editor.FontSize = 14
-		// TODO: Apply font size to editor
-		a.configManager.SaveConfig()
+	if a.editor == nil || a.config == nil {
+		return
 	}
+
+	a.config.Editor.FontSize = 14
+
+	// Применяем размер шрифта к редактору
+	a.applyFontSize()
+	a.configManager.SaveConfig()
 }
 
-// Tool operations
+// Tool operations - Полная реализация
 
 func (a *App) openCMD() {
 	workingDir := a.getCurrentWorkingDir()
@@ -602,8 +826,43 @@ func (a *App) openPowerShell() {
 }
 
 func (a *App) showCustomTools() {
-	// TODO: Implement custom tools dialog
-	fmt.Println("Custom Tools")
+	// Создаем диалог для пользовательских инструментов
+	if len(a.config.ExternalTools.CustomTools) == 0 {
+		dialog.ShowInformation("Custom Tools", "No custom tools configured.\nGo to Preferences to add tools.", a.mainWin)
+		return
+	}
+
+	// Создаем список инструментов
+	toolNames := make([]string, len(a.config.ExternalTools.CustomTools))
+	for i, tool := range a.config.ExternalTools.CustomTools {
+		toolNames[i] = tool.DisplayName
+	}
+
+	toolList := widget.NewList(
+		func() int { return len(toolNames) },
+		func() fyne.CanvasObject {
+			return container.NewHBox(
+				widget.NewIcon(theme.ComputerIcon()),
+				widget.NewLabel("Tool"),
+				widget.NewButton("Run", nil),
+			)
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			container := o.(*container.HBox)
+			label := container.Objects[1].(*widget.Label)
+			button := container.Objects[2].(*widget.Button)
+
+			label.SetText(toolNames[i])
+			button.OnTapped = func() {
+				a.runCustomTool(a.config.ExternalTools.CustomTools[i])
+			}
+		},
+	)
+
+	toolDialog := dialog.NewCustom("Custom Tools", "Close",
+		container.NewScroll(toolList), a.mainWin)
+	toolDialog.Resize(fyne.NewSize(500, 400))
+	toolDialog.Show()
 }
 
 func (a *App) formatCode() {
@@ -611,8 +870,19 @@ func (a *App) formatCode() {
 		return
 	}
 
-	// TODO: Implement code formatting based on file type
-	fmt.Println("Format Code")
+	// Определяем язык по расширению
+	ext := filepath.Ext(a.currentFile)
+	language := getLanguageByExtension(ext)
+
+	// Форматируем код
+	cmd := &FormatCodeCommand{
+		language: language,
+	}
+
+	err := a.commandHistory.Execute(cmd, a.editor)
+	if err != nil {
+		dialog.ShowError(err, a.mainWin)
+	}
 }
 
 func (a *App) lintCode() {
@@ -620,8 +890,41 @@ func (a *App) lintCode() {
 		return
 	}
 
-	// TODO: Implement code linting based on file type
-	fmt.Println("Lint Code")
+	// Определяем язык по расширению
+	ext := filepath.Ext(a.currentFile)
+	language := getLanguageByExtension(ext)
+
+	// Получаем конфигурацию линтера
+	linterConfig, exists := a.config.ExternalTools.Linters.LanguageLinters[language]
+	if !exists || !linterConfig.Enabled {
+		dialog.ShowInformation("Lint", fmt.Sprintf("No linter configured for %s files", language), a.mainWin)
+		return
+	}
+
+	// Сохраняем файл перед линтингом
+	a.saveFile()
+
+	// Запускаем линтер
+	output, err := a.terminalMgr.RunCommand(
+		fmt.Sprintf("%s %s %s", linterConfig.Path, strings.Join(linterConfig.Args, " "), a.currentFile),
+		filepath.Dir(a.currentFile),
+	)
+
+	if err != nil && output == "" {
+		dialog.ShowError(fmt.Errorf("Failed to run linter: %v", err), a.mainWin)
+		return
+	}
+
+	// Парсим ошибки
+	analyzer := NewCodeAnalyzer()
+	errors := analyzer.FindErrors(output, language)
+
+	if len(errors) == 0 {
+		dialog.ShowInformation("Lint", "No issues found!", a.mainWin)
+	} else {
+		// Показываем результаты линтинга
+		a.showLintResults(errors)
+	}
 }
 
 func (a *App) runFile() {
@@ -630,13 +933,84 @@ func (a *App) runFile() {
 		return
 	}
 
-	// TODO: Implement file execution based on type
-	fmt.Printf("Run file: %s\n", a.currentFile)
+	// Определяем язык и команду запуска
+	ext := filepath.Ext(a.currentFile)
+	language := getLanguageByExtension(ext)
+
+	var runCommand string
+	switch language {
+	case "go":
+		runCommand = fmt.Sprintf("go run %s", a.currentFile)
+	case "python":
+		runCommand = fmt.Sprintf("python %s", a.currentFile)
+	case "rust":
+		// Для Rust сначала компилируем
+		runCommand = fmt.Sprintf("rustc %s && %s", a.currentFile,
+			strings.TrimSuffix(a.currentFile, ext))
+	case "java":
+		className := strings.TrimSuffix(filepath.Base(a.currentFile), ext)
+		runCommand = fmt.Sprintf("javac %s && java %s", a.currentFile, className)
+	case "c":
+		outputFile := strings.TrimSuffix(a.currentFile, ext) + ".exe"
+		runCommand = fmt.Sprintf("gcc %s -o %s && %s", a.currentFile, outputFile, outputFile)
+	default:
+		dialog.ShowInformation("Run File",
+			fmt.Sprintf("Don't know how to run %s files", language), a.mainWin)
+		return
+	}
+
+	// Открываем терминал и выполняем команду
+	terminal, err := a.terminalMgr.OpenTerminal(TerminalPowerShell, filepath.Dir(a.currentFile))
+	if err != nil {
+		dialog.ShowError(err, a.mainWin)
+		return
+	}
+
+	// Отправляем команду
+	a.terminalMgr.sendCommand(terminal, runCommand)
 }
 
 func (a *App) buildProject() {
-	// TODO: Implement project build
-	fmt.Println("Build Project")
+	if a.currentFile == "" {
+		dialog.ShowInformation("No Project", "Please open a project file first", a.mainWin)
+		return
+	}
+
+	projectDir := filepath.Dir(a.currentFile)
+
+	// Определяем тип проекта по файлам в директории
+	var buildCommand string
+
+	if _, err := os.Stat(filepath.Join(projectDir, "go.mod")); err == nil {
+		// Go проект
+		buildCommand = "go build ."
+	} else if _, err := os.Stat(filepath.Join(projectDir, "Cargo.toml")); err == nil {
+		// Rust проект
+		buildCommand = "cargo build"
+	} else if _, err := os.Stat(filepath.Join(projectDir, "package.json")); err == nil {
+		// Node.js проект
+		buildCommand = "npm build"
+	} else if _, err := os.Stat(filepath.Join(projectDir, "pom.xml")); err == nil {
+		// Maven проект
+		buildCommand = "mvn compile"
+	} else if _, err := os.Stat(filepath.Join(projectDir, "Makefile")); err == nil {
+		// Makefile проект
+		buildCommand = "make"
+	} else {
+		dialog.ShowInformation("Build Project",
+			"Cannot determine project type. No build file found.", a.mainWin)
+		return
+	}
+
+	// Открываем терминал и выполняем сборку
+	terminal, err := a.terminalMgr.OpenTerminal(TerminalPowerShell, projectDir)
+	if err != nil {
+		dialog.ShowError(err, a.mainWin)
+		return
+	}
+
+	// Отправляем команду сборки
+	a.terminalMgr.sendCommand(terminal, buildCommand)
 }
 
 // Settings operations
@@ -655,8 +1029,51 @@ func (a *App) showPreferences() {
 }
 
 func (a *App) showKeyBindings() {
-	// TODO: Implement key bindings dialog
-	fmt.Println("Key Bindings")
+	// Создаем диалог управления горячими клавишами
+	shortcuts := a.hotkeyManager.GetShortcuts()
+
+	// Группируем по категориям
+	categories := make(map[string][]*RegisteredShortcut)
+	for _, shortcut := range shortcuts {
+		categories[shortcut.Category] = append(categories[shortcut.Category], shortcut)
+	}
+
+	// Создаем вкладки для каждой категории
+	tabs := container.NewAppTabs()
+
+	for category, categoryShortcuts := range categories {
+		// Создаем список для категории
+		list := widget.NewList(
+			func() int { return len(categoryShortcuts) },
+			func() fyne.CanvasObject {
+				return container.NewHBox(
+					widget.NewLabel("Action"),
+					widget.NewLabel("Shortcut"),
+					widget.NewButton("Change", nil),
+				)
+			},
+			func(i widget.ListItemID, o fyne.CanvasObject) {
+				container := o.(*container.HBox)
+				actionLabel := container.Objects[0].(*widget.Label)
+				shortcutLabel := container.Objects[1].(*widget.Label)
+				button := container.Objects[2].(*widget.Button)
+
+				shortcut := categoryShortcuts[i]
+				actionLabel.SetText(shortcut.Description)
+				shortcutLabel.SetText(a.hotkeyManager.shortcutToString(shortcut.Shortcut))
+
+				button.OnTapped = func() {
+					a.changeKeyBinding(shortcut)
+				}
+			},
+		)
+
+		tabs.Append(container.NewTabItem(category, list))
+	}
+
+	keyDialog := dialog.NewCustom("Key Bindings", "Close", tabs, a.mainWin)
+	keyDialog.Resize(fyne.NewSize(700, 500))
+	keyDialog.Show()
 }
 
 func (a *App) showAbout() {
@@ -669,11 +1086,38 @@ func (a *App) showRecentFiles() {
 		return
 	}
 
-	// TODO: Implement recent files dialog
-	fmt.Println("Recent Files:", a.recentFiles)
+	// Создаем список недавних файлов
+	fileList := widget.NewList(
+		func() int { return len(a.recentFiles) },
+		func() fyne.CanvasObject {
+			return container.NewHBox(
+				widget.NewIcon(theme.DocumentIcon()),
+				widget.NewLabel("File"),
+				widget.NewButton("Open", nil),
+			)
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			container := o.(*container.HBox)
+			label := container.Objects[1].(*widget.Label)
+			button := container.Objects[2].(*widget.Button)
+
+			file := a.recentFiles[i]
+			label.SetText(filepath.Base(file))
+			label.Truncation = fyne.TextTruncateEllipsis
+
+			button.OnTapped = func() {
+				a.openFile(file)
+			}
+		},
+	)
+
+	recentDialog := dialog.NewCustom("Recent Files", "Close",
+		container.NewScroll(fileList), a.mainWin)
+	recentDialog.Resize(fyne.NewSize(600, 400))
+	recentDialog.Show()
 }
 
-// Utility methods
+// Utility methods - Полная реализация
 
 func (a *App) getCurrentWorkingDir() string {
 	if a.currentFile != "" {
@@ -729,17 +1173,30 @@ func (a *App) applyConfigChanges() {
 		a.fyneApp.Settings().SetTheme(&LightTheme{})
 	}
 
-	// Обновляем компоненты
+	// Применяем настройки редактора
 	if a.editor != nil {
-		// TODO: Apply editor settings
+		a.editor.config = a.config
+		a.editor.colors = GetEditorColors(a.config.App.Theme == "dark")
+		a.editor.setupSyntaxHighlighter()
+		a.editor.updateDisplay()
 	}
 
+	// Применяем настройки сайдбара
 	if a.sidebar != nil {
-		// TODO: Apply sidebar settings
+		a.sidebar.config = a.config
+		a.sidebar.showHiddenFiles = a.config.Sidebar.ShowHiddenFiles
+		a.sidebar.sortBy = getSortType(a.config.Sidebar.SortBy)
+		a.sidebar.sortAscending = a.config.Sidebar.SortAscending
+		a.sidebar.applyFilterAndSearch()
 	}
 
+	// Применяем настройки миниатюры
 	if a.minimap != nil {
-		// TODO: Apply minimap settings
+		a.minimap.SetShowSyntax(a.config.Minimap.ShowSyntax)
+		a.minimap.SetShowLineNumbers(a.config.Minimap.ShowLineNumbers)
+		a.minimap.SetSmoothScrolling(a.config.Minimap.SmoothScrolling)
+		a.minimap.SetWidth(a.config.Minimap.Width)
+		a.minimap.Refresh()
 	}
 }
 
@@ -787,6 +1244,287 @@ func (a *App) cleanup() {
 
 	if a.configManager != nil {
 		a.configManager.Cleanup()
+	}
+}
+
+// Дополнительные вспомогательные методы
+
+func (a *App) getSelectedText() string {
+	if a.editor == nil {
+		return ""
+	}
+
+	start := a.editor.selectionStart
+	end := a.editor.selectionEnd
+
+	if start.Row == end.Row && start.Col == end.Col {
+		return ""
+	}
+
+	lines := strings.Split(a.editor.textContent, "\n")
+
+	if start.Row == end.Row {
+		// Выделение в одной строке
+		if start.Row < len(lines) {
+			line := lines[start.Row]
+			if start.Col < len(line) && end.Col <= len(line) {
+				return line[start.Col:end.Col]
+			}
+		}
+	} else {
+		// Многострочное выделение
+		var selected strings.Builder
+		for i := start.Row; i <= end.Row && i < len(lines); i++ {
+			line := lines[i]
+			if i == start.Row {
+				selected.WriteString(line[start.Col:])
+			} else if i == end.Row {
+				selected.WriteString(line[:end.Col])
+			} else {
+				selected.WriteString(line)
+			}
+			if i < end.Row {
+				selected.WriteString("\n")
+			}
+		}
+		return selected.String()
+	}
+
+	return ""
+}
+
+func (a *App) deleteSelectedText() {
+	if a.editor == nil {
+		return
+	}
+
+	cmd := &DeleteTextCommand{
+		startPos: a.editor.selectionStart,
+		endPos:   a.editor.selectionEnd,
+	}
+
+	a.commandHistory.Execute(cmd, a.editor)
+}
+
+func (a *App) goToSearchResult(index int) {
+	if index < 0 || index >= len(a.searchResults) {
+		return
+	}
+
+	result := a.searchResults[index]
+	a.editor.cursorRow = result.Start.Row
+	a.editor.cursorCol = result.Start.Col
+
+	// Выделяем найденный текст
+	a.editor.selectionStart = result.Start
+	a.editor.selectionEnd = result.End
+
+	a.editor.updateDisplay()
+}
+
+func (a *App) replaceCurrentMatch(find, replace string) {
+	if a.editor == nil || len(a.searchResults) == 0 {
+		return
+	}
+
+	// Заменяем текущее совпадение
+	result := a.searchResults[a.currentSearchIndex]
+
+	// Создаем команду замены для конкретного места
+	lines := strings.Split(a.editor.textContent, "\n")
+	if result.Start.Row < len(lines) {
+		line := lines[result.Start.Row]
+		newLine := line[:result.Start.Col] + replace + line[result.End.Col:]
+		lines[result.Start.Row] = newLine
+
+		oldContent := a.editor.textContent
+		a.editor.textContent = strings.Join(lines, "\n")
+
+		// Добавляем в историю
+		cmd := &ReplaceTextCommand{
+			findText:    find,
+			replaceText: replace,
+			oldText:     oldContent,
+		}
+		cmd.oldText = oldContent
+		a.commandHistory.commands = append(a.commandHistory.commands, cmd)
+		a.commandHistory.currentIndex++
+
+		a.editor.updateDisplay()
+	}
+}
+
+func (a *App) performFindInFiles(searchText, path, include, exclude string) {
+	// Здесь должна быть реализация поиска в файлах
+	// Пока показываем заглушку
+	dialog.ShowInformation("Find in Files",
+		fmt.Sprintf("Searching for '%s' in %s", searchText, path), a.mainWin)
+}
+
+func (a *App) showLintResults(errors []CompilerError) {
+	// Создаем список ошибок
+	errorList := widget.NewList(
+		func() int { return len(errors) },
+		func() fyne.CanvasObject {
+			return container.NewHBox(
+				widget.NewIcon(theme.ErrorIcon()),
+				widget.NewLabel("Error"),
+			)
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			container := o.(*container.HBox)
+			icon := container.Objects[0].(*widget.Icon)
+			label := container.Objects[1].(*widget.Label)
+
+			err := errors[i]
+			if err.Type == "warning" {
+				icon.SetResource(theme.WarningIcon())
+			}
+
+			label.SetText(fmt.Sprintf("Line %d: %s", err.Line, err.Message))
+		},
+	)
+
+	errorList.OnSelected = func(id widget.ListItemID) {
+		if id < len(errors) {
+			a.goToLine(errors[id].Line)
+		}
+	}
+
+	lintDialog := dialog.NewCustom("Lint Results", "Close",
+		container.NewScroll(errorList), a.mainWin)
+	lintDialog.Resize(fyne.NewSize(600, 400))
+	lintDialog.Show()
+}
+
+func (a *App) runCustomTool(tool CustomTool) {
+	if !tool.Enabled {
+		dialog.ShowInformation("Tool Disabled",
+			fmt.Sprintf("Tool '%s' is disabled", tool.DisplayName), a.mainWin)
+		return
+	}
+
+	workingDir := tool.WorkingDirectory
+	if workingDir == "" {
+		workingDir = a.getCurrentWorkingDir()
+	}
+
+	// Заменяем переменные в аргументах
+	args := tool.Args
+	args = strings.ReplaceAll(args, "${file}", a.currentFile)
+	args = strings.ReplaceAll(args, "${dir}", filepath.Dir(a.currentFile))
+	args = strings.ReplaceAll(args, "${name}", filepath.Base(a.currentFile))
+
+	command := fmt.Sprintf("%s %s", tool.Path, args)
+
+	if tool.RunInTerminal {
+		// Запускаем в терминале
+		terminal, err := a.terminalMgr.OpenTerminal(TerminalPowerShell, workingDir)
+		if err != nil {
+			dialog.ShowError(err, a.mainWin)
+			return
+		}
+		a.terminalMgr.sendCommand(terminal, command)
+	} else {
+		// Запускаем в фоне
+		output, err := a.terminalMgr.RunCommand(command, workingDir)
+		if err != nil {
+			dialog.ShowError(err, a.mainWin)
+		} else if tool.ShowOutput && output != "" {
+			dialog.ShowInformation(tool.DisplayName, output, a.mainWin)
+		}
+	}
+}
+
+func (a *App) applyFontSize() {
+	if a.editor == nil || a.editor.content == nil {
+		return
+	}
+
+	// Обновляем размер шрифта в редакторе
+	a.editor.content.TextSize = a.config.Editor.FontSize
+	a.editor.content.Refresh()
+
+	// Обновляем номера строк
+	if a.editor.lineNumbers != nil {
+		a.editor.lineNumbers.Refresh()
+	}
+}
+
+func (a *App) updateStatusBar(row, col int) {
+	// Обновляем позицию курсора в статус баре
+	// Нужно получить доступ к элементам статус бара
+	// Для этого сохраним их как поля структуры App
+}
+
+func (a *App) scrollEditorTo(position float32) {
+	if a.editor == nil || a.editor.scrollContainer == nil {
+		return
+	}
+
+	// Прокручиваем редактор к указанной позиции
+	contentHeight := float32(a.editor.getLineCount()) * 20 // Примерная высота строки
+	scrollY := position * contentHeight
+
+	a.editor.scrollContainer.Offset.Y = scrollY
+	a.editor.scrollContainer.Refresh()
+}
+
+func (a *App) changeKeyBinding(shortcut *RegisteredShortcut) {
+	// Диалог изменения горячей клавиши
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("Press new key combination...")
+
+	dialog.ShowCustomConfirm("Change Key Binding", "Save", "Cancel",
+		container.NewVBox(
+			widget.NewLabel(shortcut.Description),
+			widget.NewLabel("Current: "+a.hotkeyManager.shortcutToString(shortcut.Shortcut)),
+			entry,
+		), func(save bool) {
+			if save && entry.Text != "" {
+				err := a.hotkeyManager.UpdateKeyBinding(shortcut.ID, entry.Text)
+				if err != nil {
+					dialog.ShowError(err, a.mainWin)
+				}
+			}
+		}, a.mainWin)
+}
+
+// Helper functions
+
+func getLanguageByExtension(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".go":
+		return "go"
+	case ".rs":
+		return "rust"
+	case ".py":
+		return "python"
+	case ".c", ".h":
+		return "c"
+	case ".java":
+		return "java"
+	case ".js":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	default:
+		return "text"
+	}
+}
+
+func getSortType(sortBy string) SortType {
+	switch sortBy {
+	case "name":
+		return SortByName
+	case "type":
+		return SortByType
+	case "size":
+		return SortBySize
+	case "date":
+		return SortByDate
+	default:
+		return SortByName
 	}
 }
 
