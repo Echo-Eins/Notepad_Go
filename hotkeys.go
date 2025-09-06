@@ -2,13 +2,17 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/widget"
 )
 
 // HotkeyManager - менеджер горячих клавиш
@@ -16,6 +20,7 @@ type HotkeyManager struct {
 	// Основные компоненты
 	config *Config
 	window fyne.Window
+	app    *App // Ссылка на основное приложение
 
 	// Зарегистрированные клавиши
 	shortcuts        map[string]*RegisteredShortcut
@@ -1393,330 +1398,789 @@ func (hm *HotkeyManager) RegisterCustomAction(name string, action HotkeyAction) 
 
 // Файловые операции
 func (hm *HotkeyManager) actionNewFile(context HotkeyContext) bool {
-	fmt.Println("Action: New File")
-	// TODO: Реализовать создание нового файла
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Проверяем несохраненные изменения
+	if hm.app.editor.IsDirty() {
+		dialog.ShowConfirm("Unsaved Changes",
+			"Do you want to save the current file?",
+			func(save bool) {
+				if save {
+					hm.app.saveFile()
+				}
+				// Создаем новый файл
+				hm.app.editor.Clear()
+				hm.app.currentFile = ""
+				hm.app.updateTitle()
+			}, hm.window)
+	} else {
+		// Создаем новый файл
+		hm.app.editor.Clear()
+		hm.app.currentFile = ""
+		hm.app.updateTitle()
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionOpenFile(context HotkeyContext) bool {
-	fmt.Println("Action: Open File")
-	// TODO: Реализовать открытие файла
+	if hm.app == nil {
+		return false
+	}
+
+	// Открываем диалог выбора файла
+	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, hm.window)
+			return
+		}
+		if reader == nil {
+			return
+		}
+		defer reader.Close()
+
+		// Читаем содержимое файла
+		data, err := ioutil.ReadAll(reader)
+		if err != nil {
+			dialog.ShowError(err, hm.window)
+			return
+		}
+
+		// Загружаем в редактор
+		hm.app.editor.LoadFile(reader.URI().Path(), string(data))
+		hm.app.currentFile = reader.URI().Path()
+		hm.app.updateTitle()
+		hm.app.addToRecentFiles(reader.URI().Path())
+	}, hm.window)
+
 	return true
 }
 
 func (hm *HotkeyManager) actionSaveFile(context HotkeyContext) bool {
-	fmt.Println("Action: Save File")
-	// TODO: Реализовать сохранение файла
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	if hm.app.currentFile == "" {
+		return hm.actionSaveAsFile(context)
+	}
+
+	// Сохраняем файл
+	err := hm.app.editor.SaveFile()
+	if err != nil {
+		dialog.ShowError(err, hm.window)
+		return false
+	}
+
+	hm.app.updateTitle()
 	return true
 }
 
 func (hm *HotkeyManager) actionSaveAsFile(context HotkeyContext) bool {
-	fmt.Println("Action: Save As File")
-	// TODO: Реализовать сохранение файла как
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Показываем диалог сохранения
+	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, hm.window)
+			return
+		}
+		if writer == nil {
+			return
+		}
+		defer writer.Close()
+
+		// Записываем содержимое
+		content := hm.app.editor.GetContent()
+		_, err = writer.Write([]byte(content))
+		if err != nil {
+			dialog.ShowError(err, hm.window)
+			return
+		}
+
+		// Обновляем путь к файлу
+		hm.app.currentFile = writer.URI().Path()
+		hm.app.editor.SetFilePath(writer.URI().Path())
+		hm.app.updateTitle()
+		hm.app.addToRecentFiles(writer.URI().Path())
+	}, hm.window)
+
 	return true
 }
 
 func (hm *HotkeyManager) actionCloseFile(context HotkeyContext) bool {
-	fmt.Println("Action: Close File")
-	// TODO: Реализовать закрытие файла
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Проверяем несохраненные изменения
+	if hm.app.editor.IsDirty() {
+		dialog.ShowConfirm("Unsaved Changes",
+			"Do you want to save before closing?",
+			func(save bool) {
+				if save {
+					hm.actionSaveFile(context)
+				}
+				// Закрываем файл
+				hm.app.editor.Clear()
+				hm.app.currentFile = ""
+				hm.app.updateTitle()
+			}, hm.window)
+	} else {
+		// Закрываем файл
+		hm.app.editor.Clear()
+		hm.app.currentFile = ""
+		hm.app.updateTitle()
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionCloseAll(context HotkeyContext) bool {
-	fmt.Println("Action: Close All")
-	// TODO: Реализовать закрытие всех файлов
-	return true
+	// В текущей реализации работаем с одним файлом
+	return hm.actionCloseFile(context)
 }
 
 // Редактирование
 func (hm *HotkeyManager) actionCut(context HotkeyContext) bool {
-	fmt.Println("Action: Cut")
-	// TODO: Реализовать вырезание
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Получаем выделенный текст
+	selectedText := hm.app.editor.GetSelectedText()
+	if selectedText == "" {
+		return false
+	}
+
+	// Копируем в буфер обмена
+	hm.window.Clipboard().SetContent(selectedText)
+
+	// Удаляем выделенный текст
+	cmd := &DeleteTextCommand{text: selectedText}
+	hm.app.editor.ExecuteCommand(cmd)
+
 	return true
 }
 
 func (hm *HotkeyManager) actionCopy(context HotkeyContext) bool {
-	fmt.Println("Action: Copy")
-	// TODO: Реализовать копирование
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Получаем выделенный текст
+	selectedText := hm.app.editor.GetSelectedText()
+	if selectedText == "" {
+		// Если ничего не выделено, копируем текущую строку
+		selectedText = hm.app.editor.GetCurrentLine()
+	}
+
+	// Копируем в буфер обмена
+	hm.window.Clipboard().SetContent(selectedText)
+
 	return true
 }
 
 func (hm *HotkeyManager) actionPaste(context HotkeyContext) bool {
-	fmt.Println("Action: Paste")
-	// TODO: Реализовать вставку
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Получаем содержимое буфера обмена
+	content := hm.window.Clipboard().Content()
+	if content == "" {
+		return false
+	}
+
+	// Вставляем текст
+	cmd := &InsertTextCommand{
+		text:     content,
+		position: hm.app.editor.GetCursorPosition(),
+	}
+	hm.app.editor.ExecuteCommand(cmd)
+
 	return true
 }
 
 func (hm *HotkeyManager) actionSelectAll(context HotkeyContext) bool {
-	fmt.Println("Action: Select All")
-	// TODO: Реализовать выделение всего
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Выделяем весь текст
+	hm.app.editor.SelectAll()
 	return true
 }
 
 func (hm *HotkeyManager) actionUndo(context HotkeyContext) bool {
-	fmt.Println("Action: Undo")
-	// TODO: Реализовать отмену
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Отменяем последнее действие
+	hm.app.editor.Undo()
 	return true
 }
 
 func (hm *HotkeyManager) actionRedo(context HotkeyContext) bool {
-	fmt.Println("Action: Redo")
-	// TODO: Реализовать повтор
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Повторяем отмененное действие
+	hm.app.editor.Redo()
 	return true
 }
 
 // Поиск и навигация
 func (hm *HotkeyManager) actionFind(context HotkeyContext) bool {
-	fmt.Println("Action: Find")
-	// TODO: Реализовать поиск
+	if hm.app == nil {
+		return false
+	}
+
+	// Показываем диалог поиска
+	hm.app.showFind()
 	return true
 }
 
 func (hm *HotkeyManager) actionFindNext(context HotkeyContext) bool {
-	fmt.Println("Action: Find Next")
-	// TODO: Реализовать поиск следующего
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Ищем следующее вхождение
+	if hm.app.lastSearchText != "" {
+		found := hm.app.editor.FindNext(hm.app.lastSearchText)
+		if !found {
+			dialog.ShowInformation("Find", "No more occurrences found", hm.window)
+		}
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionFindPrevious(context HotkeyContext) bool {
-	fmt.Println("Action: Find Previous")
-	// TODO: Реализовать поиск предыдущего
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Ищем предыдущее вхождение
+	if hm.app.lastSearchText != "" {
+		found := hm.app.editor.FindPrevious(hm.app.lastSearchText)
+		if !found {
+			dialog.ShowInformation("Find", "No more occurrences found", hm.window)
+		}
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionReplace(context HotkeyContext) bool {
-	fmt.Println("Action: Replace")
-	// TODO: Реализовать замену
+	if hm.app == nil {
+		return false
+	}
+
+	// Показываем диалог замены
+	hm.app.showReplace()
 	return true
 }
 
 func (hm *HotkeyManager) actionFindInFiles(context HotkeyContext) bool {
-	fmt.Println("Action: Find in Files")
-	// TODO: Реализовать поиск в файлах
+	if hm.app == nil {
+		return false
+	}
+
+	// Показываем диалог поиска в файлах
+	hm.app.showFindInFiles()
 	return true
 }
 
 func (hm *HotkeyManager) actionGoToLine(context HotkeyContext) bool {
-	fmt.Println("Action: Go to Line")
-	// TODO: Реализовать переход к строке
+	if hm.app == nil {
+		return false
+	}
+
+	// Показываем диалог перехода к строке
+	hm.app.showGoToLine()
 	return true
 }
 
 func (hm *HotkeyManager) actionGoToSymbol(context HotkeyContext) bool {
-	fmt.Println("Action: Go to Symbol")
-	// TODO: Реализовать переход к символу
+	if hm.app == nil {
+		return false
+	}
+
+	// Показываем диалог перехода к символу
+	hm.app.showGoToSymbol()
 	return true
 }
 
 func (hm *HotkeyManager) actionGoToDefinition(context HotkeyContext) bool {
-	fmt.Println("Action: Go to Definition")
-	// TODO: Реализовать переход к определению
-	return true
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Получаем слово под курсором
+	word := hm.app.editor.GetWordAtCursor()
+	if word == "" {
+		return false
+	}
+
+	// Ищем определение
+	definition := hm.app.editor.FindDefinition(word)
+	if definition != nil {
+		// Переходим к определению
+		hm.app.editor.GoToPosition(definition.Line, definition.Column)
+		return true
+	}
+
+	dialog.ShowInformation("Go to Definition",
+		fmt.Sprintf("Definition for '%s' not found", word), hm.window)
+	return false
 }
 
 // Интерфейс
 func (hm *HotkeyManager) actionToggleSidebar(context HotkeyContext) bool {
-	fmt.Println("Action: Toggle Sidebar")
-	// TODO: Реализовать переключение сайдбара
+	if hm.app == nil {
+		return false
+	}
+
+	hm.app.toggleSidebar()
 	return true
 }
 
 func (hm *HotkeyManager) actionToggleMinimap(context HotkeyContext) bool {
-	fmt.Println("Action: Toggle Minimap")
-	// TODO: Реализовать переключение миниатюрной карты
+	if hm.app == nil {
+		return false
+	}
+
+	hm.app.toggleMinimap()
 	return true
 }
 
 func (hm *HotkeyManager) actionToggleTerminal(context HotkeyContext) bool {
-	fmt.Println("Action: Toggle Terminal")
-	// TODO: Реализовать переключение терминала
+	if hm.app == nil || hm.app.terminalMgr == nil {
+		return false
+	}
+
+	// Переключаем видимость терминала
+	if hm.app.terminalMgr.IsVisible() {
+		hm.app.terminalMgr.Hide()
+	} else {
+		hm.app.terminalMgr.Show()
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionCommandPalette(context HotkeyContext) bool {
-	fmt.Println("Action: Command Palette")
-	// TODO: Реализовать командную палитру
+	if hm.app == nil {
+		return false
+	}
+
+	hm.app.showCommandPalette()
 	return true
 }
 
 func (hm *HotkeyManager) actionFileExplorer(context HotkeyContext) bool {
-	fmt.Println("Action: File Explorer")
-	// TODO: Реализовать файловый менеджер
+	if hm.app == nil {
+		return false
+	}
+
+	// Фокусируемся на файловом проводнике
+	hm.app.focusFileExplorer()
 	return true
 }
 
 // Форматирование
 func (hm *HotkeyManager) actionFormatDocument(context HotkeyContext) bool {
-	fmt.Println("Action: Format Document")
-	// TODO: Реализовать форматирование документа
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Форматируем весь документ
+	language := hm.app.editor.GetLanguage()
+	cmd := &FormatCodeCommand{language: language}
+	err := cmd.Execute(hm.app.editor)
+	if err != nil {
+		dialog.ShowError(err, hm.window)
+		return false
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionFormatSelection(context HotkeyContext) bool {
-	fmt.Println("Action: Format Selection")
-	// TODO: Реализовать форматирование выделения
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Получаем выделенный текст
+	selectedText := hm.app.editor.GetSelectedText()
+	if selectedText == "" {
+		return false
+	}
+
+	// Форматируем выделение
+	language := hm.app.editor.GetLanguage()
+	formatted, err := formatCode(selectedText, language)
+	if err != nil {
+		dialog.ShowError(err, hm.window)
+		return false
+	}
+
+	// Заменяем выделенный текст отформатированным
+	hm.app.editor.ReplaceSelection(formatted)
 	return true
 }
 
 func (hm *HotkeyManager) actionCommentLine(context HotkeyContext) bool {
-	fmt.Println("Action: Comment Line")
-	// TODO: Реализовать комментирование строки
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Комментируем/раскомментируем текущую строку
+	language := hm.app.editor.GetLanguage()
+	lineComment := getLineCommentSymbol(language)
+	if lineComment == "" {
+		return false
+	}
+
+	currentLine := hm.app.editor.GetCurrentLine()
+	trimmed := strings.TrimSpace(currentLine)
+
+	var newLine string
+	if strings.HasPrefix(trimmed, lineComment) {
+		// Раскомментируем
+		newLine = strings.Replace(currentLine, lineComment+" ", "", 1)
+		newLine = strings.Replace(newLine, lineComment, "", 1)
+	} else {
+		// Комментируем
+		leadingSpaces := len(currentLine) - len(trimmed)
+		newLine = currentLine[:leadingSpaces] + lineComment + " " + currentLine[leadingSpaces:]
+	}
+
+	hm.app.editor.ReplaceCurrentLine(newLine)
 	return true
 }
 
 func (hm *HotkeyManager) actionCommentBlock(context HotkeyContext) bool {
-	fmt.Println("Action: Comment Block")
-	// TODO: Реализовать комментирование блока
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Получаем выделенный текст
+	selectedText := hm.app.editor.GetSelectedText()
+	if selectedText == "" {
+		return false
+	}
+
+	// Комментируем блок
+	language := hm.app.editor.GetLanguage()
+	blockStart, blockEnd := getBlockCommentSymbols(language)
+	if blockStart == "" || blockEnd == "" {
+		// Используем построчное комментирование
+		lineComment := getLineCommentSymbol(language)
+		if lineComment == "" {
+			return false
+		}
+
+		lines := strings.Split(selectedText, "\n")
+		for i, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				lines[i] = lineComment + " " + line
+			}
+		}
+
+		hm.app.editor.ReplaceSelection(strings.Join(lines, "\n"))
+	} else {
+		// Используем блочное комментирование
+		commented := blockStart + " " + selectedText + " " + blockEnd
+		hm.app.editor.ReplaceSelection(commented)
+	}
+
 	return true
 }
 
 // Выделение и курсор
 func (hm *HotkeyManager) actionSelectLine(context HotkeyContext) bool {
-	fmt.Println("Action: Select Line")
-	// TODO: Реализовать выделение строки
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Выделяем текущую строку
+	hm.app.editor.SelectCurrentLine()
 	return true
 }
 
 func (hm *HotkeyManager) actionSelectWord(context HotkeyContext) bool {
-	fmt.Println("Action: Select Word")
-	// TODO: Реализовать выделение слова
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Выделяем слово под курсором
+	hm.app.editor.SelectWordAtCursor()
 	return true
 }
 
 func (hm *HotkeyManager) actionExpandSelection(context HotkeyContext) bool {
-	fmt.Println("Action: Expand Selection")
-	// TODO: Реализовать расширение выделения
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Расширяем выделение
+	hm.app.editor.ExpandSelection()
 	return true
 }
 
 func (hm *HotkeyManager) actionShrinkSelection(context HotkeyContext) bool {
-	fmt.Println("Action: Shrink Selection")
-	// TODO: Реализовать сужение выделения
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Сужаем выделение
+	hm.app.editor.ShrinkSelection()
 	return true
 }
 
 func (hm *HotkeyManager) actionAddCursorAbove(context HotkeyContext) bool {
-	fmt.Println("Action: Add Cursor Above")
-	// TODO: Реализовать добавление курсора выше
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Добавляем курсор выше
+	hm.app.editor.AddCursorAbove()
 	return true
 }
 
 func (hm *HotkeyManager) actionAddCursorBelow(context HotkeyContext) bool {
-	fmt.Println("Action: Add Cursor Below")
-	// TODO: Реализовать добавление курсора ниже
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Добавляем курсор ниже
+	hm.app.editor.AddCursorBelow()
 	return true
 }
 
 // Фолдинг
 func (hm *HotkeyManager) actionFoldBlock(context HotkeyContext) bool {
-	fmt.Println("Action: Fold Block")
-	// TODO: Реализовать сворачивание блока
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Сворачиваем текущий блок
+	hm.app.editor.FoldCurrentBlock()
 	return true
 }
 
 func (hm *HotkeyManager) actionUnfoldBlock(context HotkeyContext) bool {
-	fmt.Println("Action: Unfold Block")
-	// TODO: Реализовать разворачивание блока
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Разворачиваем текущий блок
+	hm.app.editor.UnfoldCurrentBlock()
 	return true
 }
 
 func (hm *HotkeyManager) actionFoldAll(context HotkeyContext) bool {
-	fmt.Println("Action: Fold All")
-	// TODO: Реализовать сворачивание всего
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Сворачиваем все блоки
+	hm.app.editor.FoldAll()
 	return true
 }
 
 func (hm *HotkeyManager) actionUnfoldAll(context HotkeyContext) bool {
-	fmt.Println("Action: Unfold All")
-	// TODO: Реализовать разворачивание всего
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Разворачиваем все блоки
+	hm.app.editor.UnfoldAll()
 	return true
 }
 
 // Терминал
 func (hm *HotkeyManager) actionOpenTerminal(context HotkeyContext) bool {
-	fmt.Println("Action: Open Terminal")
-	// TODO: Реализовать открытие терминала
+	if hm.app == nil || hm.app.terminalMgr == nil {
+		return false
+	}
+
+	// Открываем терминал по умолчанию
+	workingDir := hm.app.getCurrentWorkingDir()
+	_, err := hm.app.terminalMgr.OpenTerminal(TerminalDefault, workingDir)
+	if err != nil {
+		dialog.ShowError(err, hm.window)
+		return false
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionOpenPowerShell(context HotkeyContext) bool {
-	fmt.Println("Action: Open PowerShell")
-	// TODO: Реализовать открытие PowerShell
+	if hm.app == nil || hm.app.terminalMgr == nil {
+		return false
+	}
+
+	// Открываем PowerShell
+	workingDir := hm.app.getCurrentWorkingDir()
+	err := hm.app.terminalMgr.OpenPowerShell(workingDir)
+	if err != nil {
+		dialog.ShowError(err, hm.window)
+		return false
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionOpenCMD(context HotkeyContext) bool {
-	fmt.Println("Action: Open CMD")
-	// TODO: Реализовать открытие CMD
+	if hm.app == nil || hm.app.terminalMgr == nil {
+		return false
+	}
+
+	// Открываем CMD
+	workingDir := hm.app.getCurrentWorkingDir()
+	err := hm.app.terminalMgr.OpenCMD(workingDir)
+	if err != nil {
+		dialog.ShowError(err, hm.window)
+		return false
+	}
+
 	return true
 }
 
 // Vim специальные действия
 func (hm *HotkeyManager) actionVimEscape(context HotkeyContext) bool {
 	hm.vimState.Mode = VimNormal
+	if hm.app != nil && hm.app.editor != nil {
+		hm.app.editor.SetVimMode(VimNormal)
+	}
 	return true
 }
 
 func (hm *HotkeyManager) actionVimInsert(context HotkeyContext) bool {
 	hm.vimState.Mode = VimInsert
+	if hm.app != nil && hm.app.editor != nil {
+		hm.app.editor.SetVimMode(VimInsert)
+	}
 	return true
 }
 
 func (hm *HotkeyManager) actionVimAppend(context HotkeyContext) bool {
 	hm.vimState.Mode = VimInsert
-	// TODO: Переместить курсор на одну позицию вправо
+	if hm.app != nil && hm.app.editor != nil {
+		// Переместить курсор на одну позицию вправо
+		hm.app.editor.MoveCursorRight()
+		hm.app.editor.SetVimMode(VimInsert)
+	}
 	return true
 }
 
 func (hm *HotkeyManager) actionVimDeleteLine(context HotkeyContext) bool {
-	fmt.Println("Vim: Delete Line")
-	// TODO: Реализовать удаление строки в Vim стиле
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Удаляем текущую строку и сохраняем в регистр
+	currentLine := hm.app.editor.GetCurrentLine()
+	hm.vimState.Register = currentLine
+	hm.app.editor.DeleteCurrentLine()
 	return true
 }
 
 func (hm *HotkeyManager) actionVimYankLine(context HotkeyContext) bool {
-	fmt.Println("Vim: Yank Line")
-	// TODO: Реализовать копирование строки в Vim стиле
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Копируем текущую строку в регистр
+	currentLine := hm.app.editor.GetCurrentLine()
+	hm.vimState.Register = currentLine
 	return true
 }
 
 func (hm *HotkeyManager) actionVimPaste(context HotkeyContext) bool {
-	fmt.Println("Vim: Paste")
-	// TODO: Реализовать вставку в Vim стиле
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Вставляем из регистра
+	if hm.vimState.Register != "" {
+		hm.app.editor.InsertText(hm.vimState.Register)
+	}
 	return true
 }
 
 // Emacs специальные действия
 func (hm *HotkeyManager) actionEmacsKillLine(context HotkeyContext) bool {
-	fmt.Println("Emacs: Kill Line")
-	// TODO: Реализовать удаление до конца строки
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Удаляем от курсора до конца строки
+	killedText := hm.app.editor.KillToEndOfLine()
+
+	// Добавляем в kill ring
+	hm.emacsState.KillRing = append(hm.emacsState.KillRing, killedText)
+	if len(hm.emacsState.KillRing) > 10 {
+		hm.emacsState.KillRing = hm.emacsState.KillRing[1:]
+	}
+	hm.emacsState.KillRingIndex = len(hm.emacsState.KillRing) - 1
+
 	return true
 }
 
 func (hm *HotkeyManager) actionEmacsKillWord(context HotkeyContext) bool {
-	fmt.Println("Emacs: Kill Word")
-	// TODO: Реализовать удаление слова
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Удаляем слово
+	killedWord := hm.app.editor.KillWord()
+
+	// Добавляем в kill ring
+	hm.emacsState.KillRing = append(hm.emacsState.KillRing, killedWord)
+	if len(hm.emacsState.KillRing) > 10 {
+		hm.emacsState.KillRing = hm.emacsState.KillRing[1:]
+	}
+	hm.emacsState.KillRingIndex = len(hm.emacsState.KillRing) - 1
+
 	return true
 }
 
 func (hm *HotkeyManager) actionEmacsYank(context HotkeyContext) bool {
-	fmt.Println("Emacs: Yank")
-	// TODO: Реализовать вставку из kill ring
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Вставляем из kill ring
+	if len(hm.emacsState.KillRing) > 0 && hm.emacsState.KillRingIndex >= 0 {
+		text := hm.emacsState.KillRing[hm.emacsState.KillRingIndex]
+		hm.app.editor.InsertText(text)
+	}
+
 	return true
 }
 
 func (hm *HotkeyManager) actionEmacsSetMark(context HotkeyContext) bool {
-	fmt.Println("Emacs: Set Mark")
-	// TODO: Реализовать установку метки
+	if hm.app == nil || hm.app.editor == nil {
+		return false
+	}
+
+	// Устанавливаем метку в текущей позиции
+	position := hm.app.editor.GetCursorPosition()
+	hm.emacsState.Mark = &position
+	hm.emacsState.MarkActive = true
+
 	return true
-}
-
-// Вспомогательные методы
-
-// executeActionWithParam выполняет действие с параметром
-func (hm *HotkeyManager) executeActionWithParam(actionName, param string) bool {
-	// Простая реализация - можно расширить
-	return hm.executeAction(actionName)
 }
 
 // getActionDescription возвращает описание действия
@@ -1754,6 +2218,55 @@ func (hm *HotkeyManager) getActionDescription(actionID string) string {
 	}
 
 	return "Custom action"
+}
+
+// Вспомогательные функции
+
+func getLineCommentSymbol(language string) string {
+	commentSymbols := map[string]string{
+		"go":         "//",
+		"java":       "//",
+		"c":          "//",
+		"cpp":        "//",
+		"javascript": "//",
+		"typescript": "//",
+		"rust":       "//",
+		"python":     "#",
+		"ruby":       "#",
+		"shell":      "#",
+		"yaml":       "#",
+		"toml":       "#",
+		"sql":        "--",
+		"lua":        "--",
+		"haskell":    "--",
+	}
+
+	if symbol, ok := commentSymbols[language]; ok {
+		return symbol
+	}
+	return "//"
+}
+
+func getBlockCommentSymbols(language string) (string, string) {
+	blockComments := map[string][2]string{
+		"go":         {"/*", "*/"},
+		"java":       {"/*", "*/"},
+		"c":          {"/*", "*/"},
+		"cpp":        {"/*", "*/"},
+		"javascript": {"/*", "*/"},
+		"typescript": {"/*", "*/"},
+		"rust":       {"/*", "*/"},
+		"css":        {"/*", "*/"},
+		"html":       {"<!--", "-->"},
+		"xml":        {"<!--", "-->"},
+		"sql":        {"/*", "*/"},
+		"lua":        {"--[[", "]]"},
+	}
+
+	if symbols, ok := blockComments[language]; ok {
+		return symbols[0], symbols[1]
+	}
+	return "", ""
 }
 
 // getContextPriority возвращает приоритет контекста
