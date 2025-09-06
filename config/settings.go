@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/storage"
+	_ "fyne.io/fyne/v2"
+	_ "fyne.io/fyne/v2/storage"
 	"github.com/fsnotify/fsnotify"
 )
 
