@@ -1694,11 +1694,17 @@ func (cm *ConfigManager) reloadConfig() {
 	// Небольшая задержка, чтобы файл полностью записался
 	time.Sleep(100 * time.Millisecond)
 
+	// Загружаем новую конфигурацию
 	newConfig, err := cm.LoadConfig()
 	if err != nil {
 		fmt.Printf("Error reloading config: %v\n", err)
 		return
 	}
+
+	// Применяем новую конфигурацию
+	cm.mutex.Lock()
+	cm.config = newConfig
+	cm.mutex.Unlock()
 
 	// Уведомляем о изменениях
 	cm.notifyCallbacks()

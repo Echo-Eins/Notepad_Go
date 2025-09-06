@@ -5,19 +5,6 @@ import (
 	"strings"
 )
 
-// VimMode представляет режим Vim
-type VimMode int
-
-const (
-	VimNormal VimMode = iota
-	VimInsert
-	VimVisual
-	VimVisualLine
-	VimVisualBlock
-	VimCommand
-	VimReplace
-)
-
 // VimHandler управляет Vim режимом в редакторе
 type VimHandler struct {
 	editor         *EditorWidget

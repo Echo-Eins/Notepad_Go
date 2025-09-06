@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"fyne.io/fyne/v2/theme"
+	"image/color"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -33,69 +34,80 @@ type EditorWidget struct {
 	widget.BaseWidget
 
 	// Основные компоненты
-	content         *widget.RichText
+	content         *widget.Entry    // Изменено с RichText на Entry для редактирования
+	richContent     *widget.RichText // Для отображения с подсветкой
 	lineNumbers     *widget.List
 	scrollContainer *container.Scroll
-	mainContainer   *container.Border
+	mainContainer   fyne.Container // Изменено с container.Border на fyne.Container
 
-	// Состояние файла
-	filePath     string
-	fileName     string
-	isDirty      bool
-	isReadOnly   bool
-	lastModified time.Time
-	encoding     string
-	lineEnding   string
+	// Конфигурация
+	config *Config
+	colors map[string]color.Color
 
-	// Содержимое и позиция
-	textContent    string
+	// Состояние редактора
+	filePath    string
+	textContent string
+	isDirty     bool
+	isReadOnly  bool
+	encoding    string
+	lineEnding  string
+
+	// Позиция курсора
 	cursorRow      int
 	cursorCol      int
 	selectionStart TextPosition
 	selectionEnd   TextPosition
 
+	// История изменений
+	undoStack     []Command
+	redoStack     []Command
+	maxUndoLevels int
+
 	// Подсветка синтаксиса
 	lexer        chroma.Lexer
-	formatter    chroma.Formatter
 	style        *chroma.Style
+	formatter    chroma.Formatter
 	syntaxTokens []chroma.Token
+	syntaxCache  map[string][]chroma.Token
 
-	// Интерактивные элементы
-	clickableRanges []ClickableRange
-	hoveredRange    *ClickableRange
-
-	// Фолдинг кода
-	foldedRanges map[int]FoldRange
-	indentGuides []IndentGuide
-
-	// Поиск и выделение
-	searchTerm    string
-	searchResults []TextRange
-	currentSearch int
-	selectedVar   string
-	varHighlights []TextRange
+	// Фолдинг и сворачивание
+	foldedRanges     map[int]FoldRange
+	foldingSupported bool
 
 	// Bracket matching
 	matchingBrackets map[int]int
 	bracketPairs     []BracketPair
 
-	// Настройки
-	config *Config
-	colors EditorColors
-
-	// Автосохранение и file watching
+	// Автосохранение
 	autoSaveTimer *time.Timer
+	lastSavedHash string
+
+	// File watching
 	fileWatcher   *fsnotify.Watcher
 	watcherCancel context.CancelFunc
 
-	// Производительность
-	renderMutex sync.RWMutex
-	syntaxCache map[string][]chroma.Token
-
 	// Callbacks
-	onContentChanged func(string)
-	onCursorChanged  func(int, int)
-	onFileChanged    func(string)
+	onContentChanged func(content string)
+	onCursorChanged  func(row, col int)
+	onFileChanged    func(filepath string)
+
+	// Мультикурсоры
+	cursors         []TextPosition
+	mainCursorIndex int
+
+	// Синхронизация
+	renderMutex sync.Mutex
+
+	// Clickable ranges (для ссылок, импортов и т.д.)
+	clickableRanges []ClickableRange
+
+	// Автодополнение
+	autoCompleteActive bool
+	autoCompleteList   []CompletionItem
+	autoCompleteWidget *widget.PopUp
+
+	// Indent guides
+	indentGuides []IndentGuide
 }
 
 // TextPosition представляет позицию в тексте
@@ -163,15 +175,18 @@ type BracketPair struct {
 }
 
 // NewEditor создает новый экземпляр редактора
+// NewEditor создает новый экземпляр редактора
 func NewEditor(config *Config) *EditorWidget {
 	editor := &EditorWidget{
 		config:           config,
-		colors:           GetEditorColors(config.Theme == "dark"),
+		colors:           GetEditorColors(config.App.Theme == "dark"), // Исправлено: config.App.Theme
 		foldedRanges:     make(map[int]FoldRange),
 		matchingBrackets: make(map[int]int),
 		syntaxCache:      make(map[string][]chroma.Token),
 		encoding:         "UTF-8",
 		lineEnding:       "\r\n", // Windows default
+		maxUndoLevels:    100,
+		cursors:          []TextPosition{},
 	}
 
 	editor.ExtendBaseWidget(editor)
@@ -185,9 +200,19 @@ func NewEditor(config *Config) *EditorWidget {
 
 // setupComponents создает и настраивает UI компоненты
 func (e *EditorWidget) setupComponents() {
-	// Создаем основной текстовый виджет
-	e.content = widget.NewRichText()
-	e.content.Wrapping = fyne.TextWrap(e.config.WordWrap)
+	// Создаем основной текстовый виджет (Entry для редактирования)
+	e.content = widget.NewMultiLineEntry()
+	e.content.Wrapping = fyne.TextWrapWord
+
+	// Настраиваем поведение в зависимости от WordWrap
+	if e.config.Editor.WordWrap { // Исправлено: config.Editor.WordWrap
+		e.content.Wrapping = fyne.TextWrapWord
+	} else {
+		e.content.Wrapping = fyne.TextWrapOff
+	}
+
+	// Создаем RichText для отображения с подсветкой
+	e.richContent = widget.NewRichText()
 
 	// Создаем список номеров строк
 	e.lineNumbers = widget.NewList(
@@ -215,20 +240,25 @@ func (e *EditorWidget) setupComponents() {
 	e.lineNumbers.Resize(fyne.NewSize(60, 0))
 
 	// Создаем контейнер с прокруткой
-	editorContent := container.NewHSplit(e.lineNumbers, e.content)
-	editorContent.SetOffset(0.05) // 5% для номеров строк
+	var editorContent fyne.CanvasObject
+	if e.config.Editor.ShowLineNumbers {
+		editorContent = container.NewHSplit(e.lineNumbers, e.content)
+		editorContent.(*container.HSplit).SetOffset(0.05) // 5% для номеров строк
+	} else {
+		editorContent = e.content
+	}
 
 	e.scrollContainer = container.NewScroll(editorContent)
 	e.scrollContainer.SetMinSize(fyne.NewSize(800, 600))
 
 	// Основной контейнер
-	e.mainContainer = container.NewBorder(nil, nil, nil, nil, e.scrollContainer)
+	e.mainContainer = container.NewMax(e.scrollContainer) // Используем container.NewMax вместо Border
 }
 
 // setupSyntaxHighlighter настраивает подсветку синтаксиса
 func (e *EditorWidget) setupSyntaxHighlighter() {
 	// Получаем стиль для темной/светлой темы
-	if e.config.Theme == "dark" {
+	if e.config.App.Theme == "dark" { // Исправлено: config.App.Theme
 		e.style = styles.Get("monokai")
 	} else {
 		e.style = styles.Get("github")
@@ -243,11 +273,12 @@ func (e *EditorWidget) setupSyntaxHighlighter() {
 
 // setupAutoSave настраивает автосохранение
 func (e *EditorWidget) setupAutoSave() {
-	if !e.config.AutoSave {
+	if !e.config.Editor.AutoSave { // Исправлено: config.Editor.AutoSave
 		return
 	}
 
-	duration := time.Duration(e.config.AutoSaveMinutes) * time.Minute
+	// AutoSaveDelay в секундах, конвертируем в Duration
+	duration := time.Duration(e.config.Editor.AutoSaveDelay) * time.Second // Исправлено: AutoSaveDelay вместо AutoSaveMinutes
 	e.autoSaveTimer = time.AfterFunc(duration, func() {
 		if e.isDirty && e.filePath != "" {
 			e.SaveFile()
@@ -256,13 +287,38 @@ func (e *EditorWidget) setupAutoSave() {
 	})
 }
 
+func (e *EditorWidget) bindEvents() {
+	// Обработчик изменения текста для Entry
+	e.content.OnChanged = func(text string) {
+		e.textContent = text
+		e.onTextChanged()
+	}
+
+	// Обработчик курсора
+	if cursorEntry, ok := e.content.(interface{ OnCursorChanged func() }); ok {
+		cursorEntry.OnCursorChanged = func() {
+			// Обновляем позицию курсора
+			e.updateCursorPosition()
+		}
+	}
+
+	// Для контекстного меню используем TappedSecondary на всем виджете
+	e.content.OnTapped = func(event *fyne.PointEvent) {
+		// Обработка клика
+	}
+
+	// Добавляем обработку правого клика через расширение
+	e.ExtendBaseWidget(e)
+}
+
 // resetAutoSaveTimer сбрасывает таймер автосохранения
 func (e *EditorWidget) resetAutoSaveTimer() {
 	if e.autoSaveTimer != nil {
 		e.autoSaveTimer.Stop()
 	}
-	if e.config.AutoSave {
-		duration := time.Duration(e.config.AutoSaveMinutes) * time.Minute
+
+	if e.config.Editor.AutoSave {
+		duration := time.Duration(e.config.Editor.AutoSaveDelay) * time.Second
 		e.autoSaveTimer = time.AfterFunc(duration, func() {
 			if e.isDirty && e.filePath != "" {
 				e.SaveFile()
@@ -272,95 +328,30 @@ func (e *EditorWidget) resetAutoSaveTimer() {
 	}
 }
 
-// bindEvents привязывает события
-func (e *EditorWidget) bindEvents() {
-	// Обработка изменений текста
-	e.content.OnChanged = func() {
-		e.onTextChanged()
-	}
-
-	// Обработка кликов мыши
-	e.content.OnTappedSecondary = func(pe *fyne.PointEvent) {
-		e.showContextMenu(pe.Position)
-	}
-}
-
 // LoadFile загружает файл в редактор
-func (e *EditorWidget) LoadFile(filepath string) error {
-	// Проверяем размер файла
-	info, err := os.Stat(filepath)
-	if err != nil {
-		return fmt.Errorf("cannot access file: %v", err)
-	}
-
-	if info.Size() > 100*1024*1024 { // 100MB limit
-		return fmt.Errorf("file too large (max 100MB)")
-	}
-
-	// Читаем содержимое файла
-	content, err := ioutil.ReadFile(filepath)
-	if err != nil {
-		return fmt.Errorf("cannot read file: %v", err)
-	}
-
-	// Определяем кодировку (пока только UTF-8 и ASCII)
-	e.encoding = "UTF-8"
-	if isASCII(content) {
-		e.encoding = "ASCII"
-	}
-
-	// Определяем тип переноса строк
-	e.lineEnding = detectLineEnding(content)
-
-	// Устанавливаем содержимое
-	e.textContent = string(content)
+func (e *EditorWidget) LoadFile(filepath string, content string) {
 	e.filePath = filepath
-	e.fileName = filepath[strings.LastIndex(filepath, "\\")+1:]
-	e.lastModified = info.ModTime()
+	e.SetText(content)
 	e.isDirty = false
-
-	// Определяем язык по расширению файла
-	e.detectLanguage(filepath)
-
-	// Обновляем отображение
+	e.detectLanguage()
 	e.updateDisplay()
-
-	// Запускаем file watcher
 	e.startFileWatcher()
-
-	// Парсим интерактивные элементы
-	e.parseClickableElements()
-
-	// Callback
-	if e.onFileChanged != nil {
-		e.onFileChanged(filepath)
-	}
-
-	return nil
 }
 
-// SaveFile сохраняет файл
+// SaveFile сохраняет содержимое в файл
 func (e *EditorWidget) SaveFile() error {
 	if e.filePath == "" {
 		return fmt.Errorf("no file path specified")
 	}
 
-	// Конвертируем перенос строк
-	content := strings.ReplaceAll(e.textContent, "\n", e.lineEnding)
-
 	// Сохраняем файл
-	err := ioutil.WriteFile(e.filePath, []byte(content), 0644)
+	err := ioutil.WriteFile(e.filePath, []byte(e.textContent), 0644)
 	if err != nil {
-		return fmt.Errorf("cannot save file: %v", err)
+		return err
 	}
 
-	// Обновляем состояние
-	info, _ := os.Stat(e.filePath)
-	e.lastModified = info.ModTime()
 	e.isDirty = false
-
-	// Сбрасываем таймер автосохранения
-	e.resetAutoSaveTimer()
+	e.lastSavedHash = e.getContentHash()
 
 	return nil
 }
@@ -435,6 +426,52 @@ func (e *EditorWidget) updateDisplay() {
 	// Обновляем содержимое
 	e.content.Refresh()
 }
+
+// Дополнительные методы для поддержки HotkeyManager
+
+// IsDirty возвращает true, если есть несохраненные изменения
+func (e *EditorWidget) IsDirty() bool {
+	return e.isDirty
+}
+
+// SetFilePath устанавливает путь к файлу
+func (e *EditorWidget) SetFilePath(path string) {
+	e.filePath = path
+	e.detectLanguage()
+}
+
+// GetSelectedText возвращает выделенный текст
+func (e *EditorWidget) GetSelectedText() string {
+	// Если используем Entry, можем получить выделение
+	if e.content.SelectedText() != "" {
+		return e.content.SelectedText()
+	}
+	return ""
+}
+
+// GetCurrentLine возвращает текущую строку
+func (e *EditorWidget) GetCurrentLine() string {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
+		return lines[e.cursorRow]
+	}
+	return ""
+}
+
+// SelectAll выделяет весь текст
+func (e *EditorWidget) SelectAll() {
+	e.content.SelectAll()
+}
+
+// GetCursorPosition возвращает позицию курсора
+func (e *EditorWidget) GetCursorPosition() TextPosition {
+	return TextPosition{
+		Row: e.cursorRow,
+		Col: e.cursorCol,
+	}
+}
+
+
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (e *EditorWidget) applySyntaxHighlighting() {
