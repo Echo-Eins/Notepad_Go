@@ -16,6 +16,9 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/storage"
 )
 
 // TerminalManager управляет терминалами
@@ -384,16 +387,51 @@ func (tm *TerminalManager) clearTerminal(terminal *TerminalInstance) {
 
 // changeDirectory открывает диалог смены директории
 func (tm *TerminalManager) changeDirectory(terminal *TerminalInstance) {
-	// TODO: Implement directory selection dialog
-	// For now, just print current directory
-	switch terminal.Type {
-	case TerminalCMD:
-		tm.sendCommand(terminal, "cd")
-	case TerminalPowerShell:
-		tm.sendCommand(terminal, "Get-Location")
-	case TerminalBash:
-		tm.sendCommand(terminal, "pwd")
+	if terminal == nil || terminal.Window == nil {
+		return
 	}
+
+	folderDialog := dialog.NewFolderOpen(func(list fyne.ListableURI, err error) {
+		if err != nil {
+			dialog.ShowError(err, terminal.Window)
+			return
+		}
+		if list == nil {
+			return
+		}
+
+		path := list.Path()
+
+		var cmd string
+		switch terminal.Type {
+		case TerminalCMD:
+			cmd = fmt.Sprintf("cd /d \"%s\"", path)
+		case TerminalPowerShell:
+			cmd = fmt.Sprintf("Set-Location -Path '%s'", path)
+		default: // TerminalBash and others
+			cmd = fmt.Sprintf("cd \"%s\"", path)
+		}
+
+		if err := tm.sendCommand(terminal, cmd); err != nil {
+			dialog.ShowError(err, terminal.Window)
+			return
+		}
+
+		terminal.WorkingDir = path
+		tm.SetWorkingDirectory(path)
+
+		if terminal.Window != nil {
+			terminal.Window.SetTitle(tm.getTerminalTitle(terminal))
+		}
+	}, terminal.Window)
+
+	if terminal.WorkingDir != "" {
+		if uri, err := storage.ListerForURI(storage.NewFileURI(terminal.WorkingDir)); err == nil {
+			folderDialog.SetLocation(uri)
+		}
+	}
+
+	folderDialog.Show()
 }
 
 // copyOutput копирует вывод терминала в буфер обмена

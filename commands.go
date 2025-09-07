@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/theme"
 )
 
 // EditorCommand представляет команду редактора
@@ -130,19 +133,49 @@ func (c *DeleteTextCommand) Execute(editor *EditorWidget) error {
 	lines := strings.Split(editor.textContent, "\n")
 
 	// Удаляем текст между позициями
-	if c.startPos.Row == c.endPos.Row {
+	start := c.startPos
+	end := c.endPos
+
+	// Нормализуем порядок позиций
+	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	if start.Row == end.Row {
 		// Удаление в одной строке
-		if c.startPos.Row >= 0 && c.startPos.Row < len(lines) {
-			line := lines[c.startPos.Row]
-			if c.startPos.Col >= 0 && c.endPos.Col <= len(line) {
-				c.deletedText = line[c.startPos.Col:c.endPos.Col]
-				newLine := line[:c.startPos.Col] + line[c.endPos.Col:]
-				lines[c.startPos.Row] = newLine
+		if start.Row >= 0 && start.Row < len(lines) {
+			line := lines[start.Row]
+			if start.Col >= 0 && end.Col <= len(line) {
+				c.deletedText = line[start.Col:end.Col]
+				newLine := line[:start.Col] + line[end.Col:]
+				lines[start.Row] = newLine
 			}
 		}
 	} else {
 		// Удаление нескольких строк
-		// TODO: Implement multi-line deletion
+		if start.Row >= 0 && end.Row < len(lines) {
+			startLine := lines[start.Row]
+			endLine := lines[end.Row]
+
+			if start.Col < 0 || start.Col > len(startLine) {
+				start.Col = len(startLine)
+			}
+			if end.Col < 0 || end.Col > len(endLine) {
+				end.Col = len(endLine)
+			}
+
+			// Сохраняем удаленный текст
+			parts := []string{startLine[start.Col:]}
+			if end.Row-start.Row > 1 {
+				parts = append(parts, lines[start.Row+1:end.Row]...)
+			}
+			parts = append(parts, endLine[:end.Col])
+			c.deletedText = strings.Join(parts, "\n")
+
+			// Формируем новую строку на месте удаленного фрагмента
+			newLine := startLine[:start.Col] + endLine[end.Col:]
+			lines = append(lines[:start.Row], append([]string{newLine}, lines[end.Row+1:]...)...)
+		}
 	}
 
 	editor.textContent = strings.Join(lines, "\n")
@@ -451,7 +484,11 @@ func (c *GoToLineCommand) Execute(editor *EditorWidget) error {
 	editor.cursorRow = c.lineNumber - 1
 	editor.cursorCol = 0
 
-	// TODO: Scroll to line
+	// Прокручиваем контейнер, чтобы строка была видна
+	if editor.scrollContainer != nil {
+		lineHeight := theme.TextSize()
+		editor.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(editor.cursorRow)*lineHeight))
+	}
 	editor.updateDisplay()
 
 	return nil

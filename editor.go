@@ -84,7 +84,7 @@ type EditorWidget struct {
 	// File watching
 	fileWatcher   *fsnotify.Watcher
 	watcherCancel context.CancelFunc
-	searchResults []SearchResult
+	searchResults []TextRange
 
 	// Callbacks
 	onContentChanged func(content string)
@@ -191,12 +191,6 @@ func (e *EditorWidget) setupSyntaxHighlighter() {
 	if e.formatter == nil {
 		e.formatter = formatters.Fallback
 	}
-}
-
-type SearchResult struct {
-	Position TextPosition
-	Length   int
-	Text     string
 }
 
 // CompletionItem represents a single autocomplete suggestion
@@ -1103,19 +1097,40 @@ func (e *EditorWidget) stopFileWatcher() {
 
 // handleExternalFileChange обрабатывает внешнее изменение файла
 func (e *EditorWidget) handleExternalFileChange() {
+	if e.filePath == "" {
+		return
+	}
+
 	info, err := os.Stat(e.filePath)
 	if err != nil {
 		return
 	}
 
-	if info.ModTime().After(e.lastModified) {
-		// Файл был изменен внешне
-		// TODO: показать диалог пользователю о перезагрузке
-		// Пока автоматически перезагружаем если нет несохраненных изменений
-		if !e.isDirty {
-			e.LoadFile(e.filePath)
-		}
+	// Проверяем что файл действительно изменился
+	if !info.ModTime().After(e.lastModified) {
+		return
 	}
+
+	modTime := info.ModTime()
+	// Обновляем время модификации сразу, чтобы избежать повторных диалогов
+	e.lastModified = modTime
+
+	// Все UI-операции должны выполняться в главном потоке
+	fyne.CurrentApp().Driver().RunOnMain(func() {
+		win := fyne.CurrentApp().Driver().AllWindows()[0]
+		message := "File has been modified outside the editor."
+		if e.isDirty {
+			message += "\nReloading will discard your unsaved changes."
+		}
+
+		dialog.ShowConfirm("File Changed", message+"\nDo you want to reload it?", func(reload bool) {
+			if reload {
+				if err := e.LoadFile(e.filePath); err != nil {
+					dialog.ShowError(err, win)
+				}
+			}
+		}, win)
+	})
 }
 
 // CreateObject реализует интерфейс fyne.Widget

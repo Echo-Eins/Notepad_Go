@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -1071,11 +1074,23 @@ func (vh *VimHandler) replaceChar(ch rune) {
 }
 
 func (vh *VimHandler) undo() {
-	// TODO: Call editor's undo
+	if vh.editor == nil || vh.editor.content == nil {
+		return
+	}
+	vh.editor.content.Undo()
+	vh.editor.cursorRow = vh.editor.content.CursorRow
+	vh.editor.cursorCol = vh.editor.content.CursorColumn
+	vh.editor.updateDisplay()
 }
 
 func (vh *VimHandler) redo() {
-	// TODO: Call editor's redo
+	if vh.editor == nil || vh.editor.content == nil {
+		return
+	}
+	vh.editor.content.Redo()
+	vh.editor.cursorRow = vh.editor.content.CursorRow
+	vh.editor.cursorCol = vh.editor.content.CursorColumn
+	vh.editor.updateDisplay()
 }
 
 func (vh *VimHandler) repeatLastCommand() {
@@ -1270,24 +1285,128 @@ func (vh *VimHandler) addToJumpList() {
 	vh.jumpIndex = len(vh.jumpList) - 1
 }
 
+// scrollLines scrolls the editor by the specified number of lines and moves the cursor.
+func (vh *VimHandler) scrollLines(lines int) {
+	if vh.editor == nil || vh.editor.scrollContainer == nil {
+		return
+	}
+
+	lineHeight := theme.TextSize()
+	totalLines := vh.editor.getLineCount()
+
+	// Update cursor position
+	newRow := vh.editor.cursorRow + lines
+	if newRow < 0 {
+		newRow = 0
+	} else if newRow >= totalLines {
+		newRow = totalLines - 1
+	}
+	vh.editor.cursorRow = newRow
+	vh.adjustCursorColumn()
+	vh.editor.content.CursorRow = vh.editor.cursorRow
+	vh.editor.content.CursorColumn = vh.editor.cursorCol
+
+	// Calculate new scroll offset
+	viewportHeight := vh.editor.scrollContainer.Size().Height
+	maxOffset := float32(totalLines)*lineHeight - viewportHeight
+	newOffset := vh.editor.scrollContainer.Offset.Y + float32(lines)*lineHeight
+	if newOffset < 0 {
+		newOffset = 0
+	} else if newOffset > maxOffset {
+		newOffset = maxOffset
+	}
+	vh.editor.scrollContainer.ScrollToOffset(fyne.NewPos(0, newOffset))
+	vh.editor.updateDisplay()
+}
+
 func (vh *VimHandler) jumpToMatchingBracket() {
-	// TODO: Implement jump to matching bracket
+	if vh.editor == nil {
+		return
+	}
+
+	// Ensure bracket mappings are up to date
+	if vh.editor.matchingBrackets == nil || len(vh.editor.matchingBrackets) == 0 {
+		vh.editor.updateBracketMatching()
+	}
+
+	pos := TextPosition{Row: vh.editor.cursorRow, Col: vh.editor.cursorCol}
+	index := vh.editor.positionToIndex(pos)
+
+	matchIndex, ok := vh.editor.matchingBrackets[index]
+	if !ok && index > 0 {
+		matchIndex, ok = vh.editor.matchingBrackets[index-1]
+		if ok {
+			index = index - 1
+		}
+	}
+	if !ok {
+		return
+	}
+
+	// Convert index back to position
+	lines := strings.Split(vh.editor.textContent, "\n")
+	count := 0
+	target := TextPosition{}
+	for row, line := range lines {
+		lineLen := len(line)
+		if matchIndex <= count+lineLen {
+			target.Row = row
+			target.Col = matchIndex - count
+			break
+		}
+		count += lineLen + 1
+	}
+
+	vh.addToJumpList()
+	vh.editor.cursorRow = target.Row
+	vh.editor.cursorCol = target.Col
+	vh.editor.content.CursorRow = target.Row
+	vh.editor.content.CursorColumn = target.Col
+	vh.editor.updateDisplay()
 }
 
 func (vh *VimHandler) scrollHalfPageDown() {
-	// TODO: Implement scroll
+	if vh.editor == nil || vh.editor.scrollContainer == nil {
+		return
+	}
+	linesPerPage := int(vh.editor.scrollContainer.Size().Height / theme.TextSize())
+	if linesPerPage <= 0 {
+		linesPerPage = 1
+	}
+	vh.scrollLines(linesPerPage / 2)
 }
 
 func (vh *VimHandler) scrollHalfPageUp() {
-	// TODO: Implement scroll
+	if vh.editor == nil || vh.editor.scrollContainer == nil {
+		return
+	}
+	linesPerPage := int(vh.editor.scrollContainer.Size().Height / theme.TextSize())
+	if linesPerPage <= 0 {
+		linesPerPage = 1
+	}
+	vh.scrollLines(-linesPerPage / 2)
 }
 
 func (vh *VimHandler) scrollPageDown() {
-	// TODO: Implement scroll
+	if vh.editor == nil || vh.editor.scrollContainer == nil {
+		return
+	}
+	linesPerPage := int(vh.editor.scrollContainer.Size().Height / theme.TextSize())
+	if linesPerPage <= 0 {
+		linesPerPage = 1
+	}
+	vh.scrollLines(linesPerPage)
 }
 
 func (vh *VimHandler) scrollPageUp() {
-	// TODO: Implement scroll
+	if vh.editor == nil || vh.editor.scrollContainer == nil {
+		return
+	}
+	linesPerPage := int(vh.editor.scrollContainer.Size().Height / theme.TextSize())
+	if linesPerPage <= 0 {
+		linesPerPage = 1
+	}
+	vh.scrollLines(-linesPerPage)
 }
 
 func (vh *VimHandler) startRecordingMacro(register string) {
@@ -1325,23 +1444,194 @@ func (vh *VimHandler) openFile(filename string) {
 }
 
 func (vh *VimHandler) quit() {
-	// TODO: Implement quit
+	if vh.editor != nil && vh.editor.IsDirty() {
+		dialog.ShowInformation("Unsaved Changes", "No write since last change (use :q! to quit without saving)", fyne.CurrentApp().Driver().AllWindows()[0])
+		return
+	}
+
+	if app := fyne.CurrentApp(); app != nil {
+		windows := app.Driver().AllWindows()
+		if len(windows) > 0 {
+			windows[0].Close()
+		} else {
+			app.Quit()
+		}
+	}
 }
 
 func (vh *VimHandler) forceQuit() {
-	// TODO: Implement force quit
+	if app := fyne.CurrentApp(); app != nil {
+		windows := app.Driver().AllWindows()
+		// Bypass unsaved check by marking buffer clean temporarily
+		if vh.editor != nil {
+			vh.editor.isDirty = false
+		}
+		if len(windows) > 0 {
+			windows[0].Close()
+		} else {
+			app.Quit()
+		}
+	}
 }
 
 func (vh *VimHandler) setOption(option string) {
-	// TODO: Implement set options (like set number, set wrap, etc)
+	option = strings.TrimSpace(option)
+	if option == "" || vh.editor == nil || vh.editor.config == nil {
+		return
+	}
+
+	switch option {
+	case "number":
+		vh.editor.config.Editor.ShowLineNumbers = true
+		split := container.NewHSplit(vh.editor.lineNumbers, vh.editor.content)
+		split.SetOffset(0.05)
+		vh.editor.scrollContainer.Content = split
+		vh.editor.scrollContainer.Refresh()
+	case "nonumber":
+		vh.editor.config.Editor.ShowLineNumbers = false
+		vh.editor.scrollContainer.Content = vh.editor.content
+		vh.editor.scrollContainer.Refresh()
+	case "wrap":
+		vh.editor.config.Editor.WordWrap = true
+		vh.editor.content.Wrapping = fyne.TextWrapWord
+	case "nowrap":
+		vh.editor.config.Editor.WordWrap = false
+		vh.editor.content.Wrapping = fyne.TextWrapOff
+	default:
+		dialog.ShowInformation("Unknown option", fmt.Sprintf("Unknown option: %s", option), fyne.CurrentApp().Driver().AllWindows()[0])
+	}
+
+	vh.editor.updateDisplay()
 }
 
 func (vh *VimHandler) substitute(cmd string) {
-	// TODO: Implement substitute on current line
+	pattern, replacement, flags, err := parseSubstituteCommand(cmd)
+	if err != nil {
+		dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+		return
+	}
+
+	if pattern == "" {
+		pattern = vh.searchPattern
+	} else {
+		vh.searchPattern = pattern
+	}
+
+	regexPattern := pattern
+	if strings.Contains(flags, "i") {
+		regexPattern = "(?i)" + regexPattern
+	}
+	re, err := regexp.Compile(regexPattern)
+	if err != nil {
+		dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+		return
+	}
+
+	lines := strings.Split(vh.editor.textContent, "\n")
+	if vh.editor.cursorRow < 0 || vh.editor.cursorRow >= len(lines) {
+		return
+	}
+
+	newLine, replaced := applySubstitution(lines[vh.editor.cursorRow], re, replacement, strings.Contains(flags, "g"))
+	if replaced {
+		lines[vh.editor.cursorRow] = newLine
+		vh.editor.textContent = strings.Join(lines, "\n")
+		vh.editor.isDirty = true
+		vh.editor.updateDisplay()
+	}
 }
 
 func (vh *VimHandler) substituteAll(cmd string) {
-	// TODO: Implement substitute in whole file
+	pattern, replacement, flags, err := parseSubstituteCommand(cmd)
+	if err != nil {
+		dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+		return
+	}
+
+	if pattern == "" {
+		pattern = vh.searchPattern
+	} else {
+		vh.searchPattern = pattern
+	}
+
+	regexPattern := pattern
+	if strings.Contains(flags, "i") {
+		regexPattern = "(?i)" + regexPattern
+	}
+	re, err := regexp.Compile(regexPattern)
+	if err != nil {
+		dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+		return
+	}
+
+	lines := strings.Split(vh.editor.textContent, "\n")
+	changed := false
+	for i, line := range lines {
+		newLine, replaced := applySubstitution(line, re, replacement, strings.Contains(flags, "g"))
+		if replaced {
+			lines[i] = newLine
+			changed = true
+		}
+	}
+
+	if changed {
+		vh.editor.textContent = strings.Join(lines, "\n")
+		vh.editor.isDirty = true
+		vh.editor.updateDisplay()
+	}
+}
+
+func parseSubstituteCommand(cmd string) (string, string, string, error) {
+	if !strings.HasPrefix(cmd, "s/") {
+		return "", "", "", fmt.Errorf("invalid substitute command")
+	}
+	cmd = cmd[2:]
+
+	var parts []string
+	var current strings.Builder
+	escaped := false
+	for _, r := range cmd {
+		if !escaped && r == '/' && len(parts) < 2 {
+			parts = append(parts, current.String())
+			current.Reset()
+			continue
+		}
+		if !escaped && r == '\\' {
+			escaped = true
+			continue
+		}
+		current.WriteRune(r)
+		escaped = false
+	}
+
+	if len(parts) == 0 {
+		return "", "", "", fmt.Errorf("invalid substitute command")
+	}
+	if len(parts) == 1 {
+		parts = append(parts, "")
+	}
+
+	pattern := parts[0]
+	replacement := parts[1]
+	flags := current.String()
+	return pattern, replacement, flags, nil
+}
+
+func applySubstitution(line string, re *regexp.Regexp, replacement string, global bool) (string, bool) {
+	if global {
+		newLine := re.ReplaceAllString(line, replacement)
+		return newLine, newLine != line
+	}
+
+	idx := re.FindStringSubmatchIndex(line)
+	if idx == nil {
+		return line, false
+	}
+
+	var buf strings.Builder
+	re.ExpandString(&buf, replacement, line, idx)
+	newLine := line[:idx[0]] + buf.String() + line[idx[1]:]
+	return newLine, true
 }
 
 // GetMode возвращает текущий режим
