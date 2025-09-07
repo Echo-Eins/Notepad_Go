@@ -1041,6 +1041,7 @@ func (a *App) lintCode() {
 
 	// Сохраняем файл перед линтингом
 	a.saveFile()
+	a.editor.ClearLintErrors()
 
 	// Запускаем линтер
 	cmdParts := append([]string{linterConfig.Path}, linterConfig.Args...)
@@ -1059,7 +1060,9 @@ func (a *App) lintCode() {
 
 	if len(errors) == 0 {
 		dialog.ShowInformation("Lint", "No issues found!", a.mainWin)
+		a.editor.ClearLintErrors()
 	} else {
+		a.editor.SetLintErrors(errors)
 		// Показываем результаты линтинга
 		a.showLintResults(errors)
 	}

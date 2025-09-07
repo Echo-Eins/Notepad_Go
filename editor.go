@@ -119,6 +119,9 @@ type EditorWidget struct {
 	// Bookmarks
 	bookmarks map[int]Bookmark
 
+	// Lint errors by line number
+	lintLines map[int]string
+
 	// Bookmark callbacks
 	onBookmarksChanged func()
 }
@@ -161,6 +164,7 @@ func (e *EditorWidget) LoadFile(path string) error {
 	e.lastModified = info.ModTime()
 	e.detectLanguage()
 	e.updateDisplay()
+	e.ClearLintErrors()
 	e.startFileWatcher()
 
 	return nil
@@ -250,6 +254,38 @@ func (e *EditorWidget) GoToBookmark(line int) error {
 	return cmd.Execute(e)
 }
 
+// SetLintErrors highlights line numbers that contain linter errors
+func (e *EditorWidget) SetLintErrors(errors []CompilerError) {
+	if len(errors) == 0 {
+		e.lintLines = nil
+		e.updateLineNumbers()
+		return
+	}
+
+	if e.lintLines == nil {
+		e.lintLines = make(map[int]string)
+	} else {
+		for k := range e.lintLines {
+			delete(e.lintLines, k)
+		}
+	}
+
+	for _, err := range errors {
+		if err.Line > 0 {
+			e.lintLines[err.Line] = err.Message
+		}
+	}
+	e.updateLineNumbers()
+}
+
+// ClearLintErrors removes all linter error highlights
+func (e *EditorWidget) ClearLintErrors() {
+	if e.lintLines != nil {
+		e.lintLines = nil
+		e.updateLineNumbers()
+	}
+}
+
 // getLineCount возвращает количество строк
 func (e *EditorWidget) getLineCount() int {
 	if e.textContent == "" {
@@ -282,6 +318,9 @@ func (e *EditorWidget) updateLineNumbers() {
 	for i := 0; i < lines; i++ {
 		lineNum := i + 1
 		style := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor()}
+		if _, hasLint := e.lintLines[lineNum]; hasLint {
+			style.FGColor = theme.ErrorColor()
+		}
 		if lineNum == e.cursorRow+1 {
 			style.BGColor = theme.SelectionColor()
 		}

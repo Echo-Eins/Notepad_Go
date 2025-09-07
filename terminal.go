@@ -339,7 +339,13 @@ func (tm *TerminalManager) sendCommand(terminal *TerminalInstance, command strin
 func (tm *TerminalManager) readTerminalOutput(terminal *TerminalInstance) {
 	var reader io.Reader = terminal.StdoutPipe
 	if runtime.GOOS == "windows" {
-		reader = transform.NewReader(terminal.StdoutPipe, charmap.CodePage866.NewDecoder())
+		// После смены кодовой страницы на UTF-8 (65001) для CMD и PowerShell
+		// декодирование из CP866 приводит к искажению выводимых символов.
+		// Поэтому применяем преобразование только для терминалов, где кодировка
+		// остается CP866 (например, сторонние оболочки).
+		if terminal.Type != TerminalCMD && terminal.Type != TerminalPowerShell {
+			reader = transform.NewReader(terminal.StdoutPipe, charmap.CodePage866.NewDecoder())
+		}
 	}
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
@@ -360,7 +366,10 @@ func (tm *TerminalManager) readTerminalOutput(terminal *TerminalInstance) {
 func (tm *TerminalManager) readTerminalError(terminal *TerminalInstance) {
 	var reader io.Reader = terminal.StderrPipe
 	if runtime.GOOS == "windows" {
-		reader = transform.NewReader(terminal.StderrPipe, charmap.CodePage866.NewDecoder())
+		// Аналогично stdout, преобразуем только если терминал не переключен на UTF-8
+		if terminal.Type != TerminalCMD && terminal.Type != TerminalPowerShell {
+			reader = transform.NewReader(terminal.StderrPipe, charmap.CodePage866.NewDecoder())
+		}
 	}
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
