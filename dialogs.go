@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -250,10 +249,10 @@ func (dm *DialogManager) ShowCommandPaletteDialog(commands []Command, onExecute 
 			)
 		},
 		func(index widget.ListItemID, item fyne.CanvasObject) {
-			container := item.(*container.HBox)
-			icon := container.Objects[0].(*widget.Icon)
-			label := container.Objects[1].(*widget.Label)
-			shortcut := container.Objects[2].(*widget.Label)
+			box := item.(*fyne.Container)
+			icon := box.Objects[0].(*widget.Icon)
+			label := box.Objects[1].(*widget.Label)
+			shortcut := box.Objects[2].(*widget.Label)
 
 			cmd := commands[index]
 			icon.SetResource(cmd.Icon)
@@ -528,9 +527,9 @@ func (dm *DialogManager) createKeyBindingsSettings(config *Config) fyne.CanvasOb
 			)
 		},
 		func(index widget.ListItemID, item fyne.CanvasObject) {
-			container := item.(*container.HBox)
-			label := container.Objects[0].(*widget.Label)
-			button := container.Objects[1].(*widget.Button)
+			box := item.(*fyne.Container)
+			label := box.Objects[0].(*widget.Label)
+			button := box.Objects[1].(*widget.Button)
 
 			kb := keyBindings[index]
 			label.SetText(fmt.Sprintf("%s: %s", kb.Name, kb.Current))
@@ -593,7 +592,9 @@ func (dm *DialogManager) createAdvancedSettings(config *Config) fyne.CanvasObjec
 			config.Advanced.ExperimentalFeatures[featureName] = checked
 		})
 		check.SetChecked(enabled)
-		experimentalCard.Content.(*container.VBox).Add(check)
+		if content, ok := experimentalCard.Content.(*fyne.Container); ok {
+			content.Add(check)
+		}
 	}
 
 	return container.NewVBox(
@@ -647,10 +648,11 @@ func filterCommands(commands []Command, searchText string) []Command {
 
 	for _, cmd := range commands {
 		name := strings.ToLower(cmd.Name)
-		desc := strings.ToLower(cmd.Description)
+		shortcut := strings.ToLower(cmd.Shortcut)
+		category := strings.ToLower(cmd.Category)
 
-		// Проверяем вхождение в название или описание
-		if strings.Contains(name, searchText) || strings.Contains(desc, searchText) {
+		// Проверяем вхождение в название, сочетание клавиш или категорию
+		if strings.Contains(name, searchText) || strings.Contains(shortcut, searchText) || strings.Contains(category, searchText) {
 			filtered = append(filtered, cmd)
 			continue
 		}

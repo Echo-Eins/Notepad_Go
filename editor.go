@@ -241,8 +241,8 @@ const (
 
 // FoldRange представляет свернутый блок кода
 type FoldRange struct {
-	StartRow    int
-	EndRow      int
+	Start       int // Start is the first line of the folded range
+	End         int // End is the last line of the folded range
 	IsFolded    bool
 	IndentLevel int
 	Label       string
@@ -1150,8 +1150,8 @@ func (e *EditorWidget) toggleFold(row int) {
 		endRow := e.findBlockEnd(row)
 		if endRow > row {
 			e.foldedRanges[row] = FoldRange{
-				StartRow:    row,
-				EndRow:      endRow,
+				Start:       row,
+				End:         endRow,
 				IsFolded:    true,
 				IndentLevel: e.getIndentLevel(strings.Split(e.textContent, "\n")[row]),
 				Label:       e.getBlockLabel(strings.Split(e.textContent, "\n"), row),

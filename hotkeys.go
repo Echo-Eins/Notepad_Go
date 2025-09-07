@@ -2359,12 +2359,47 @@ func (hm *HotkeyManager) contextToString(context HotkeyContext) string {
 
 // loadVimBindings загружает специальные Vim привязки
 func (hm *HotkeyManager) loadVimBindings() {
-	// TODO: Загрузить специальные Vim горячие клавиши
+	bindings := []struct {
+		id     string
+		combo  string
+		action string
+	}{
+		{id: "vim_escape", combo: "Escape", action: "vim_escape"},
+		{id: "vim_escape_ctrl", combo: "Ctrl+[", action: "vim_escape"},
+		{id: "vim_insert", combo: "Alt+I", action: "vim_insert"},
+		{id: "vim_append", combo: "Alt+A", action: "vim_append"},
+		{id: "vim_delete_line", combo: "Alt+D", action: "vim_delete_line"},
+		{id: "vim_yank_line", combo: "Alt+Y", action: "vim_yank_line"},
+		{id: "vim_paste", combo: "Alt+P", action: "vim_paste"},
+	}
+
+	for _, b := range bindings {
+		hm.registerShortcut(b.id, b.combo, b.action, ContextEditor, "Vim")
+		if sc, ok := hm.shortcuts[b.id]; ok {
+			sc.RequiredMode = ModeVim
+		}
+	}
 }
 
 // loadEmacsBindings загружает специальные Emacs привязки
 func (hm *HotkeyManager) loadEmacsBindings() {
-	// TODO: Загрузить специальные Emacs горячие клавиши
+	bindings := []struct {
+		id     string
+		combo  string
+		action string
+	}{
+		{id: "emacs_kill_line", combo: "Ctrl+K", action: "emacs_kill_line"},
+		{id: "emacs_kill_word", combo: "Alt+D", action: "emacs_kill_word"},
+		{id: "emacs_yank", combo: "Ctrl+Y", action: "emacs_yank"},
+		{id: "emacs_set_mark", combo: "Ctrl+Space", action: "emacs_set_mark"},
+	}
+
+	for _, b := range bindings {
+		hm.registerShortcut(b.id, b.combo, b.action, ContextEditor, "Emacs")
+		if sc, ok := hm.shortcuts[b.id]; ok {
+			sc.RequiredMode = ModeEmacs
+		}
+	}
 }
 
 // ConflictResolver implementation
