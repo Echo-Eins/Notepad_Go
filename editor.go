@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/alecthomas/chroma/v2"
@@ -14,9 +16,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"image/color"
 	"io/ioutil"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +79,7 @@ type EditorWidget struct {
 	// Автосохранение
 	autoSaveTimer *time.Timer
 	lastSavedHash string
+	lastModified  time.Time
 
 	// File watching
 	fileWatcher   *fsnotify.Watcher
@@ -121,6 +127,9 @@ func (e *EditorWidget) LoadFile(path string) error {
 	e.fileName = filepath.Base(path)
 	e.textContent = string(content)
 	e.isDirty = false
+	if info, err := os.Stat(path); err == nil {
+		e.lastModified = info.ModTime()
+	}
 	e.detectLanguage()
 	e.updateDisplay()
 	e.startFileWatcher()
@@ -140,6 +149,9 @@ func (e *EditorWidget) SaveFile() error {
 	}
 
 	e.isDirty = false
+	if info, err := os.Stat(e.filePath); err == nil {
+		e.lastModified = info.ModTime()
+	}
 	return nil
 }
 
@@ -319,8 +331,9 @@ func (e *EditorWidget) setupComponents() {
 	// Создаем контейнер с прокруткой
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		editorContent = container.NewHSplit(e.lineNumbers, e.content)
-		editorContent.(*container.HSplit).SetOffset(0.05) // 5% для номеров строк
+		split := container.NewHSplit(e.lineNumbers, e.content)
+		split.SetOffset(0.05) // 5% для номеров строк
+		editorContent = split
 	} else {
 		editorContent = e.content
 	}
@@ -372,6 +385,11 @@ func (e *EditorWidget) bindEvents() {
 	e.ExtendBaseWidget(e)
 }
 
+// TappedSecondary обрабатывает правый клик мыши
+func (e *EditorWidget) TappedSecondary(event *fyne.PointEvent) {
+	e.showContextMenu(event.Position)
+}
+
 // updateCursorPosition обновляет внутреннее состояние позиции курсора
 func (e *EditorWidget) updateCursorPosition() {
 	if entry, ok := e.content.(*widget.Entry); ok {
@@ -402,7 +420,7 @@ func (e *EditorWidget) resetAutoSaveTimer() {
 
 // detectLanguage определяет язык программирования по расширению
 func (e *EditorWidget) detectLanguage() {
-	ext := strings.ToLower(filepath[strings.LastIndex(filepath, ".")+1:])
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(e.filePath), "."))
 
 	var lexerName string
 	switch ext {
@@ -1118,15 +1136,125 @@ func (e *EditorWidget) GetContent() string  { return e.textContent }
 func (e *EditorWidget) GetFilePath() string { return e.filePath }
 func (e *EditorWidget) GetFileName() string { return e.fileName }
 
-// Заглушки для методов, которые будут реализованы позже
-func (e *EditorWidget) showContextMenu(pos fyne.Position) {}
-func (e *EditorWidget) openURL(url string)                {}
-func (e *EditorWidget) openFile(path string)              {}
-func (e *EditorWidget) runCommand(command string)         {}
-func (e *EditorWidget) showColorPreview(color string)     {}
-func (e *EditorWidget) goToDefinition(name string)        {}
+func (e *EditorWidget) showContextMenu(pos fyne.Position) {
+	c := fyne.CurrentApp().Driver().CanvasForObject(e.content)
+	if c == nil {
+		return
+	}
+	menu := fyne.NewMenu("",
+		fyne.NewMenuItem("Cut", func() {
+			e.content.TypedShortcut(&fyne.ShortcutCut{Clipboard: fyne.CurrentApp().Clipboard()})
+		}),
+		fyne.NewMenuItem("Copy", func() {
+			e.content.TypedShortcut(&fyne.ShortcutCopy{Clipboard: fyne.CurrentApp().Clipboard()})
+		}),
+		fyne.NewMenuItem("Paste", func() {
+			e.content.TypedShortcut(&fyne.ShortcutPaste{Clipboard: fyne.CurrentApp().Clipboard()})
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Select All", func() {
+			e.SelectAll()
+		}),
+	)
+	widget.NewPopUpMenu(menu, c).ShowAtPosition(pos)
+}
+func (e *EditorWidget) openURL(rawurl string) {
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		return
+	}
+	_ = fyne.CurrentApp().OpenURL(u)
+}
+
+func (e *EditorWidget) openFile(path string) {
+	if path == "" {
+		return
+	}
+	if err := e.LoadFile(path); err == nil {
+		if e.onFileChanged != nil {
+			e.onFileChanged(path)
+		}
+	}
+}
+
+func (e *EditorWidget) runCommand(command string) {
+	if command == "" {
+		return
+	}
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Start()
+}
+
+func (e *EditorWidget) showColorPreview(col string) {
+	c, err := parseColor(col)
+	if err != nil {
+		return
+	}
+	rect := canvas.NewRectangle(c)
+	rect.SetMinSize(fyne.NewSize(100, 100))
+	dialog.NewCustom("Color preview", "Close", rect, fyne.CurrentApp().Driver().AllWindows()[0]).Show()
+}
+
+func (e *EditorWidget) goToDefinition(name string) {
+	lines := strings.Split(e.textContent, "\n")
+	for i, line := range lines {
+		if idx := strings.Index(line, name); idx >= 0 {
+			if entry, ok := e.content.(*widget.Entry); ok {
+				entry.CursorRow = i
+				entry.CursorColumn = idx
+				entry.Refresh()
+			}
+			e.cursorRow = i
+			e.cursorCol = idx
+			e.scrollContainer.ScrollTo(fyne.NewPos(0, float32(i)*theme.TextSize()))
+			break
+		}
+	}
+}
 
 // Utility functions
+
+func parseColor(s string) (color.Color, error) {
+	if strings.HasPrefix(s, "#") {
+		s = strings.TrimPrefix(s, "#")
+		var r, g, b uint8
+		switch len(s) {
+		case 3:
+			_, err := fmt.Sscanf(s, "%1x%1x%1x", &r, &g, &b)
+			if err != nil {
+				return nil, err
+			}
+			r *= 17
+			g *= 17
+			b *= 17
+		case 6:
+			_, err := fmt.Sscanf(s, "%02x%02x%02x", &r, &g, &b)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("invalid color format")
+		}
+		return color.NRGBA{R: r, G: g, B: b, A: 255}, nil
+	}
+	if strings.HasPrefix(strings.ToLower(s), "rgb(") {
+		var r, g, b int
+		_, err := fmt.Sscanf(s, "rgb(%d,%d,%d)", &r, &g, &b)
+		if err != nil {
+			return nil, err
+		}
+		return color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}, nil
+	}
+	return nil, fmt.Errorf("unsupported color format")
+}
+
 func isASCII(data []byte) bool {
 	for _, b := range data {
 		if b > 127 {
