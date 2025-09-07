@@ -27,10 +27,13 @@ func AnimateHide(obj fyne.CanvasObject) {
 	anim := canvas.NewSizeAnimation(start, fyne.NewSize(0, 0), animationDuration, func(s fyne.Size) {
 		obj.Resize(s)
 	})
-	anim.SetCompletionCallback(func() {
-		obj.Hide()
-		obj.Resize(start)
-	})
+	go func() {
+		time.Sleep(animationDuration)
+		fyne.Do(func() {
+			obj.Hide()
+			obj.Resize(start)
+		})
+	}()
 	anim.Start()
 }
 
