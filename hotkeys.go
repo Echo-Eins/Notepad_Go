@@ -11,8 +11,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/storage"
-	"fyne.io/fyne/v2/widget"
 )
 
 // HotkeyManager - менеджер горячих клавиш
@@ -154,6 +152,7 @@ type EmacsState struct {
 	KillRing       []string
 	KillRingIndex  int
 	Mark           *TextPosition
+	MarkActive     bool
 	PrefixArgument int
 	UniversalArg   bool
 	LastCommand    string
@@ -659,15 +658,30 @@ func (hm *HotkeyManager) parseKeyName(keyStr string) fyne.KeyName {
 
 // setupEventHandlers устанавливает обработчики событий
 func (hm *HotkeyManager) setupEventHandlers() {
-	// Обработчик нажатий клавиш
-	hm.window.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
-		hm.handleKeyEvent(key)
-	})
-
-	// Обработчик символов
-	hm.window.Canvas().SetOnTypedRune(func(r rune) {
-		hm.handleRuneEvent(r)
-	})
+	// Для десктопных приложений используем низкоуровневые события,
+	// чтобы отслеживать нажатия и отпускания модификаторов
+	if deskCanvas, ok := hm.window.Canvas().(desktop.Canvas); ok {
+		deskCanvas.SetOnKeyDown(func(ev *fyne.KeyEvent) {
+			hm.updateModifierState(ev, true)
+			hm.handleKeyEvent(ev)
+		})
+		deskCanvas.SetOnKeyUp(func(ev *fyne.KeyEvent) {
+			hm.updateModifierState(ev, false)
+		})
+		hm.window.Canvas().SetOnTypedRune(func(r rune) {
+			hm.handleRuneEvent(r)
+		})
+	} else {
+		// Для других платформ используем стандартные обработчики
+		hm.window.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
+			hm.updateModifierState(key, true)
+			hm.handleKeyEvent(key)
+			hm.updateModifierState(key, false)
+		})
+		hm.window.Canvas().SetOnTypedRune(func(r rune) {
+			hm.handleRuneEvent(r)
+		})
+	}
 }
 
 // handleKeyEvent обрабатывает нажатие клавиши
@@ -681,9 +695,6 @@ func (hm *HotkeyManager) handleKeyEvent(event *fyne.KeyEvent) {
 	if hm.keyLogger.enabled {
 		hm.keyLogger.logKey(event.Name, hm.getModifierState(), hm.currentContext, hm.currentMode)
 	}
-
-	// Обновляем состояние модификаторов
-	hm.updateModifierState(event)
 
 	// Обрабатываем в зависимости от режима
 	switch hm.currentMode {
@@ -1216,10 +1227,20 @@ func (hm *HotkeyManager) createShortcutHandler(shortcut *RegisteredShortcut) fun
 }
 
 // updateModifierState обновляет состояние модификаторов
-func (hm *HotkeyManager) updateModifierState(event *fyne.KeyEvent) {
-	// Fyne не предоставляет прямого доступа к состоянию модификаторов
-	// Можно отслеживать через события, но это сложно
-	// Пока используем простую заглушку
+func (hm *HotkeyManager) updateModifierState(event *fyne.KeyEvent, pressed bool) {
+	hm.mutex.Lock()
+	defer hm.mutex.Unlock()
+
+	switch event.Name {
+	case desktop.KeyControlLeft, desktop.KeyControlRight:
+		hm.modifierState.Ctrl = pressed
+	case desktop.KeyShiftLeft, desktop.KeyShiftRight:
+		hm.modifierState.Shift = pressed
+	case desktop.KeyAltLeft, desktop.KeyAltRight:
+		hm.modifierState.Alt = pressed
+	case desktop.KeySuperLeft, desktop.KeySuperRight:
+		hm.modifierState.Super = pressed
+	}
 }
 
 // getModifierState возвращает текущее состояние модификаторов

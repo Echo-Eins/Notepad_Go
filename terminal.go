@@ -58,6 +58,7 @@ const (
 	TerminalPowerShell
 	TerminalBash
 	TerminalCustom
+	TerminalDefault
 )
 
 // NewTerminalManager создает новый менеджер терминалов
@@ -105,6 +106,22 @@ func (tm *TerminalManager) detectDefaultShell() {
 func (tm *TerminalManager) OpenTerminal(terminalType TerminalType, workingDir string) (*TerminalInstance, error) {
 	tm.mutex.Lock()
 	defer tm.mutex.Unlock()
+
+	if terminalType == TerminalDefault {
+		switch strings.ToLower(tm.defaultShell) {
+		case "cmd":
+			terminalType = TerminalCMD
+		case "powershell":
+			terminalType = TerminalPowerShell
+		case "bash":
+			terminalType = TerminalBash
+		default:
+			terminalType = TerminalCustom
+			if tm.config.ExternalTools.TerminalPath == "" {
+				tm.config.ExternalTools.TerminalPath = tm.defaultShell
+			}
+		}
+	}
 
 	// Создаем новый экземпляр терминала
 	terminal := &TerminalInstance{

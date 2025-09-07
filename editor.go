@@ -49,6 +49,7 @@ type EditorWidget struct {
 	isReadOnly  bool
 	encoding    string
 	lineEnding  string
+	language    string
 
 	// Позиция курсора
 	cursorRow      int
@@ -443,7 +444,7 @@ func (e *EditorWidget) detectLanguage() {
 	default:
 		lexerName = "text"
 	}
-
+	e.language = lexerName
 	e.lexer = lexers.Get(lexerName)
 	if e.lexer == nil {
 		e.lexer = lexers.Fallback
@@ -525,6 +526,11 @@ func (e *EditorWidget) Clear() {
 func (e *EditorWidget) SetFilePath(path string) {
 	e.filePath = path
 	e.fileName = filepath.Base(path)
+}
+
+// GetLanguage возвращает определенный для текущего файла язык
+func (e *EditorWidget) GetLanguage() string {
+	return e.language
 }
 
 // ExecuteCommand выполняет команду с добавлением в историю
@@ -621,6 +627,19 @@ func (e *EditorWidget) SelectWordAtCursor() {
 	}
 }
 
+// SelectCurrentLine выделяет текущую строку целиком
+func (e *EditorWidget) SelectCurrentLine() {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow < 0 || e.cursorRow >= len(lines) {
+		return
+	}
+	line := lines[e.cursorRow]
+	e.selectionStart = TextPosition{Row: e.cursorRow, Col: 0}
+	e.selectionEnd = TextPosition{Row: e.cursorRow, Col: len(line)}
+	e.cursorCol = len(line)
+	e.content.CursorColumn = e.cursorCol
+}
+
 // ExpandSelection расширяет выделение до слова
 func (e *EditorWidget) ExpandSelection() {
 	e.SelectWordAtCursor()
@@ -647,6 +666,26 @@ func (e *EditorWidget) AddCursorBelow() {
 	if e.cursorRow < len(lines)-1 {
 		pos := TextPosition{Row: e.cursorRow + 1, Col: e.cursorCol}
 		e.cursors = append(e.cursors, pos)
+	}
+}
+
+// MoveCursorRight перемещает курсор вправо с переходом на следующую строку
+func (e *EditorWidget) MoveCursorRight() {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow < 0 || e.cursorRow >= len(lines) {
+		return
+	}
+	line := lines[e.cursorRow]
+	if e.cursorCol < len(line) {
+		e.cursorCol++
+	} else if e.cursorRow < len(lines)-1 {
+		e.cursorRow++
+		e.cursorCol = 0
+	}
+	e.content.CursorRow = e.cursorRow
+	e.content.CursorColumn = e.cursorCol
+	if e.onCursorChanged != nil {
+		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
 }
 
