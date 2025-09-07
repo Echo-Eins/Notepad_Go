@@ -162,6 +162,12 @@ type MinimapColors struct {
 	Selection      color.Color
 }
 
+// MinimapColorProvider описывает объекты,
+// способные предоставлять цветовую схему для миникарты.
+type MinimapColorProvider interface {
+	MinimapColors() MinimapColors
+}
+
 // MinimapRenderer - кастомный renderer для minimap
 type MinimapRenderer struct {
 	minimap *MinimapWidget
@@ -197,7 +203,7 @@ func NewMinimap(editor *EditorWidget) *MinimapWidget {
 	}
 
 	minimap.ExtendBaseWidget(minimap)
-	minimap.setupColors()
+	minimap.SetupColors()
 	minimap.setupComponents()
 	minimap.startUpdateWorker()
 
@@ -776,8 +782,28 @@ func (m *MinimapWidget) updateCanvasSize() {
 
 // showContextMenu показывает контекстное меню
 func (m *MinimapWidget) showContextMenu(pos fyne.Position) {
-	// Создаем меню настроек minimap
-	// Пока не реализуем полностью - можно добавить позже
+	// Меню настроек Minimap
+	c := fyne.CurrentApp().Driver().CanvasForObject(m.mainContainer)
+	if c == nil {
+		return
+	}
+
+	menu := fyne.NewMenu("",
+		fyne.NewMenuItem("Toggle Syntax Highlighting", func() {
+			m.SetShowSyntax(!m.showSyntax)
+			m.Refresh()
+		}),
+		fyne.NewMenuItem("Toggle Line Numbers", func() {
+			m.SetShowLineNumbers(!m.showLineNumbers)
+			m.Refresh()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Hide Minimap", func() {
+			m.SetVisible(false)
+		}),
+	)
+
+	widget.NewPopUpMenu(menu, c).ShowAtPosition(pos)
 }
 
 // Публичные методы для настроек

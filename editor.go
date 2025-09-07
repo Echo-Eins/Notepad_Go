@@ -1123,6 +1123,24 @@ func (e *EditorWidget) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(e.mainContainer)
 }
 
+// MinimapColors возвращает цветовую схему для миникарты.
+func (e *EditorWidget) MinimapColors() MinimapColors {
+	return MinimapColors{
+		Background:     editorBackground,
+		Text:           textPrimary,
+		Comment:        syntaxComment,
+		String:         syntaxString,
+		Keyword:        syntaxKeyword,
+		Number:         syntaxNumber,
+		Function:       syntaxFunction,
+		Viewport:       color.NRGBA{accentBlue.R, accentBlue.G, accentBlue.B, 0x40},
+		ViewportBorder: accentBlue,
+		ScrollBar:      scrollbarThumb,
+		LineNumber:     textSecondary,
+		Selection:      editorSelection,
+	}
+}
+
 // Методы для внешнего API
 func (e *EditorWidget) GetContent() string  { return e.textContent }
 func (e *EditorWidget) GetFilePath() string { return e.filePath }

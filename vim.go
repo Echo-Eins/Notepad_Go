@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 )
 
 // VimHandler управляет Vim режимом в редакторе
@@ -888,11 +892,119 @@ func (vh *VimHandler) clearSelection() {
 }
 
 func (vh *VimHandler) deleteSelection() {
-	// TODO: Implement delete selection
+	start := vh.editor.selectionStart
+	end := vh.editor.selectionEnd
+
+	// Ensure start <= end
+	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	lines := strings.Split(vh.editor.textContent, "\n")
+	if start.Row >= len(lines) || end.Row >= len(lines) {
+		vh.clearSelection()
+		return
+	}
+
+	var builder strings.Builder
+
+	// Collect deleted text and rebuild content
+	if start.Row == end.Row {
+		line := lines[start.Row]
+		if start.Col > len(line) {
+			start.Col = len(line)
+		}
+		if end.Col > len(line) {
+			end.Col = len(line)
+		}
+		builder.WriteString(line[start.Col:end.Col])
+		lines[start.Row] = line[:start.Col] + line[end.Col:]
+	} else {
+		startLine := lines[start.Row]
+		endLine := lines[end.Row]
+
+		if start.Col > len(startLine) {
+			start.Col = len(startLine)
+		}
+		if end.Col > len(endLine) {
+			end.Col = len(endLine)
+		}
+
+		builder.WriteString(startLine[start.Col:])
+		builder.WriteString("\n")
+		for i := start.Row + 1; i < end.Row; i++ {
+			builder.WriteString(lines[i])
+			builder.WriteString("\n")
+		}
+		builder.WriteString(endLine[:end.Col])
+
+		newLines := append([]string{}, lines[:start.Row]...)
+		newStart := startLine[:start.Col] + endLine[end.Col:]
+		newLines = append(newLines, newStart)
+		if end.Row+1 < len(lines) {
+			newLines = append(newLines, lines[end.Row+1:]...)
+		}
+		lines = newLines
+	}
+
+	vh.yankBuffer = builder.String()
+	vh.editor.textContent = strings.Join(lines, "\n")
+	vh.editor.cursorRow = start.Row
+	vh.editor.cursorCol = start.Col
+	vh.editor.isDirty = true
+	vh.editor.selectionStart = TextPosition{}
+	vh.editor.selectionEnd = TextPosition{}
+	vh.editor.updateDisplay()
 }
 
 func (vh *VimHandler) yankSelection() {
-	// TODO: Implement yank selection
+	start := vh.editor.selectionStart
+	end := vh.editor.selectionEnd
+
+	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	lines := strings.Split(vh.editor.textContent, "\n")
+	if start.Row >= len(lines) || end.Row >= len(lines) {
+		vh.clearSelection()
+		return
+	}
+
+	var builder strings.Builder
+	if start.Row == end.Row {
+		line := lines[start.Row]
+		if start.Col > len(line) {
+			start.Col = len(line)
+		}
+		if end.Col > len(line) {
+			end.Col = len(line)
+		}
+		builder.WriteString(line[start.Col:end.Col])
+	} else {
+		startLine := lines[start.Row]
+		endLine := lines[end.Row]
+
+		if start.Col > len(startLine) {
+			start.Col = len(startLine)
+		}
+		if end.Col > len(endLine) {
+			end.Col = len(endLine)
+		}
+
+		builder.WriteString(startLine[start.Col:])
+		builder.WriteString("\n")
+		for i := start.Row + 1; i < end.Row; i++ {
+			builder.WriteString(lines[i])
+			builder.WriteString("\n")
+		}
+		builder.WriteString(endLine[:end.Col])
+	}
+
+	vh.yankBuffer = builder.String()
+	vh.editor.cursorRow = start.Row
+	vh.editor.cursorCol = start.Col
+	vh.clearSelection()
 }
 
 func (vh *VimHandler) changeSelection() {
@@ -974,19 +1086,169 @@ func (vh *VimHandler) repeatLastCommand() {
 
 func (vh *VimHandler) startSearch(backward bool) {
 	vh.searchBackward = backward
-	// TODO: Show search prompt
+
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("Enter search pattern")
+
+	var win fyne.Window
+	if app := fyne.CurrentApp(); app != nil {
+		wins := app.Driver().AllWindows()
+		if len(wins) > 0 {
+			win = wins[0]
+		}
+	}
+
+	if win == nil {
+		return
+	}
+
+	dialog.ShowCustomConfirm("Search", "OK", "Cancel", entry, func(confirm bool) {
+		if confirm {
+			vh.searchPattern = entry.Text
+			if vh.searchPattern == "" {
+				return
+			}
+			if vh.searchBackward {
+				vh.searchPrevious()
+			} else {
+				vh.searchNext()
+			}
+		}
+	}, win)
+
+	win.Canvas().Focus(entry)
 }
 
 func (vh *VimHandler) searchNext() {
-	// TODO: Implement search next
+	if vh.searchPattern == "" {
+		return
+	}
+
+	lines := strings.Split(vh.editor.textContent, "\n")
+	startRow := vh.editor.cursorRow
+	startCol := vh.editor.cursorCol + 1
+
+	pattern := vh.searchPattern
+
+	// Search forward from current position
+	for r := startRow; r < len(lines); r++ {
+		line := lines[r]
+		col := 0
+		if r == startRow {
+			if startCol > len(line) {
+				startCol = len(line)
+			}
+			col = startCol
+		}
+		if idx := strings.Index(line[col:], pattern); idx != -1 {
+			vh.addToJumpList()
+			vh.editor.cursorRow = r
+			vh.editor.cursorCol = col + idx
+			vh.editor.updateDisplay()
+			return
+		}
+	}
+
+	// Wrap around to beginning
+	for r := 0; r <= startRow; r++ {
+		line := lines[r]
+		if idx := strings.Index(line, pattern); idx != -1 {
+			vh.addToJumpList()
+			vh.editor.cursorRow = r
+			vh.editor.cursorCol = idx
+			vh.editor.updateDisplay()
+			return
+		}
+	}
 }
 
 func (vh *VimHandler) searchPrevious() {
-	// TODO: Implement search previous
+	if vh.searchPattern == "" {
+		return
+	}
+
+	lines := strings.Split(vh.editor.textContent, "\n")
+	startRow := vh.editor.cursorRow
+	startCol := vh.editor.cursorCol
+
+	pattern := vh.searchPattern
+
+	for r := startRow; r >= 0; r-- {
+		line := lines[r]
+		endCol := len(line)
+		if r == startRow {
+			endCol = startCol
+		}
+		if endCol < 0 {
+			continue
+		}
+		if idx := strings.LastIndex(line[:endCol], pattern); idx != -1 {
+			vh.addToJumpList()
+			vh.editor.cursorRow = r
+			vh.editor.cursorCol = idx
+			vh.editor.updateDisplay()
+			return
+		}
+	}
+
+	// Wrap around to end
+	for r := len(lines) - 1; r >= startRow; r-- {
+		line := lines[r]
+		if idx := strings.LastIndex(line, pattern); idx != -1 {
+			vh.addToJumpList()
+			vh.editor.cursorRow = r
+			vh.editor.cursorCol = idx
+			vh.editor.updateDisplay()
+			return
+		}
+	}
 }
 
 func (vh *VimHandler) searchWordUnderCursor(backward bool) {
-	// TODO: Implement search word under cursor
+	lines := strings.Split(vh.editor.textContent, "\n")
+	if vh.editor.cursorRow >= len(lines) {
+		return
+	}
+
+	line := lines[vh.editor.cursorRow]
+	if len(line) == 0 || vh.editor.cursorCol >= len(line) {
+		return
+	}
+
+	col := vh.editor.cursorCol
+	if isWordBoundary(rune(line[col])) {
+		// Move right to the next word character
+		for col < len(line) && isWordBoundary(rune(line[col])) {
+			col++
+		}
+		if col >= len(line) {
+			return
+		}
+	}
+
+	start := col
+	for start > 0 && !isWordBoundary(rune(line[start-1])) {
+		start--
+	}
+
+	end := col
+	for end < len(line) && !isWordBoundary(rune(line[end])) {
+		end++
+	}
+
+	word := line[start:end]
+	if word == "" {
+		return
+	}
+
+	vh.searchPattern = word
+	vh.searchBackward = backward
+
+	if backward {
+		vh.searchPrevious()
+	} else {
+		vh.searchNext()
+	}
 }
 
 func (vh *VimHandler) setMark(mark string) {
