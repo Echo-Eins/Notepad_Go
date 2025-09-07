@@ -36,7 +36,7 @@ type EditorWidget struct {
 	// Основные компоненты
 	content         *widget.Entry    // Изменено с RichText на Entry для редактирования
 	richContent     *widget.RichText // Для отображения с подсветкой
-	lineNumbers     *widget.TextGrid
+	lineNumbers     *widget.Label
 	scrollContainer *container.Scroll
 	mainContainer   *fyne.Container // Изменено с container.Border на *fyne.Container
 
@@ -315,17 +315,7 @@ func (e *EditorWidget) updateLineNumbers() {
 	}
 
 	e.lineNumbers.SetText(b.String())
-	for i := 0; i < lines; i++ {
-		lineNum := i + 1
-		style := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor()}
-		if _, hasLint := e.lintLines[lineNum]; hasLint {
-			style.FGColor = theme.ErrorColor()
-		}
-		if lineNum == e.cursorRow+1 {
-			style.BGColor = theme.SelectionColor()
-		}
-		e.lineNumbers.SetRowStyle(i, style)
-	}
+
 	e.lineNumbers.Refresh()
 }
 
@@ -455,18 +445,17 @@ func (e *EditorWidget) setupComponents() {
 	e.richContent = widget.NewRichText()
 
 	// Создаем виджет номеров строк
-	e.lineNumbers = widget.NewTextGrid()
-	e.lineNumbers.Scroll = fyne.ScrollNone
+	e.lineNumbers = widget.NewLabel("")
+	e.lineNumbers.Wrapping = fyne.TextWrapOff
+	e.lineNumbers.Alignment = fyne.TextAlignTrailing
+	e.lineNumbers.TextStyle = fyne.TextStyle{Monospace: true}
 	e.updateLineNumbers()
-	e.lineNumbers.Resize(fyne.NewSize(60, 0))
 
 	// Создаем контейнер с прокруткой
 	editorLayer := container.NewMax(e.richContent, e.content)
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		split := container.NewHSplit(e.lineNumbers, editorLayer)
-		split.SetOffset(0.05) // 5% для номеров строк
-		editorContent = split
+		editorContent = container.NewBorder(nil, nil, container.NewVBox(e.lineNumbers), nil, editorLayer)
 	} else {
 		editorContent = editorLayer
 	}

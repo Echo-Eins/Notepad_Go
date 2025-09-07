@@ -1483,13 +1483,15 @@ func (vh *VimHandler) setOption(option string) {
 	switch option {
 	case "number":
 		vh.editor.config.Editor.ShowLineNumbers = true
-		split := container.NewHSplit(vh.editor.lineNumbers, vh.editor.content)
-		split.SetOffset(0.05)
-		vh.editor.scrollContainer.Content = split
+		vh.editor.updateLineNumbers()
+		editorLayer := container.NewMax(vh.editor.richContent, vh.editor.content)
+		vh.editor.scrollContainer.Content = container.NewBorder(nil, nil, container.NewVBox(vh.editor.lineNumbers), nil, editorLayer)
 		vh.editor.scrollContainer.Refresh()
 	case "nonumber":
 		vh.editor.config.Editor.ShowLineNumbers = false
-		vh.editor.scrollContainer.Content = vh.editor.content
+		editorLayer := container.NewMax(vh.editor.richContent, vh.editor.content)
+		vh.editor.scrollContainer.Content = editorLayer
+		vh.editor.scrollContainer.Refresh()
 		vh.editor.scrollContainer.Refresh()
 	case "wrap":
 		vh.editor.config.Editor.WordWrap = true
