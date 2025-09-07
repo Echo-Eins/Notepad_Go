@@ -767,16 +767,17 @@ func (s *SidebarWidget) startRefreshWorker() {
 // refreshDirectory обновляет директорию
 func (s *SidebarWidget) refreshDirectory(path string) {
 	s.loadMutex.Lock()
-	defer s.loadMutex.Unlock()
 
 	node := s.getNodeByPath(path)
 	if node == nil || !node.IsDir {
+		s.loadMutex.Unlock()
 		return
 	}
 
 	// Перезагружаем дочерние узлы
 	node.IsLoaded = false
 	s.loadDirectoryChildren(node)
+	s.loadMutex.Unlock()
 
 	// Обновляем отображение
 	s.applyFilterAndSearch()

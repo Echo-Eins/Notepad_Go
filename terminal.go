@@ -19,6 +19,9 @@ import (
 
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
+
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 )
 
 // TerminalManager управляет терминалами
@@ -163,7 +166,7 @@ func (tm *TerminalManager) startTerminalProcess(terminal *TerminalInstance) erro
 	case TerminalCMD:
 		cmd = exec.Command("cmd.exe")
 	case TerminalPowerShell:
-		cmd = exec.Command("powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass")
+		cmd = exec.Command("powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "chcp 65001")
 	case TerminalBash:
 		if runtime.GOOS == "windows" {
 			// Пытаемся найти Git Bash или WSL
@@ -334,7 +337,11 @@ func (tm *TerminalManager) sendCommand(terminal *TerminalInstance, command strin
 
 // readTerminalOutput читает stdout терминала
 func (tm *TerminalManager) readTerminalOutput(terminal *TerminalInstance) {
-	scanner := bufio.NewScanner(terminal.StdoutPipe)
+	var reader io.Reader = terminal.StdoutPipe
+	if runtime.GOOS == "windows" {
+		reader = transform.NewReader(terminal.StdoutPipe, charmap.CodePage866.NewDecoder())
+	}
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		if !terminal.IsRunning {
 			break
@@ -351,7 +358,11 @@ func (tm *TerminalManager) readTerminalOutput(terminal *TerminalInstance) {
 
 // readTerminalError читает stderr терминала
 func (tm *TerminalManager) readTerminalError(terminal *TerminalInstance) {
-	scanner := bufio.NewScanner(terminal.StderrPipe)
+	var reader io.Reader = terminal.StderrPipe
+	if runtime.GOOS == "windows" {
+		reader = transform.NewReader(terminal.StderrPipe, charmap.CodePage866.NewDecoder())
+	}
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		if !terminal.IsRunning {
 			break
@@ -376,11 +387,13 @@ func (tm *TerminalManager) updateTerminalOutput(terminal *TerminalInstance) {
 	content := terminal.OutputBuffer.String()
 	terminal.mutex.Unlock()
 
-	// Обновляем в UI потоке
-	terminal.Output.SetText(content)
+	// Обновляем вывод в UI-потоке
+	fyne.Do(func() {
+		terminal.Output.SetText(content)
 
-	// Прокручиваем к концу
-	terminal.Output.CursorRow = len(strings.Split(content, "\n")) - 1
+		// Прокручиваем к концу
+		terminal.Output.CursorRow = len(strings.Split(content, "\n")) - 1
+	})
 }
 
 // clearTerminal очищает вывод терминала

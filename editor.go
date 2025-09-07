@@ -156,6 +156,7 @@ func (e *EditorWidget) LoadFile(path string) error {
 	e.filePath = path
 	e.fileName = filepath.Base(path)
 	e.textContent = string(content)
+	e.content.SetText(e.textContent)
 	e.isDirty = false
 	e.lastModified = info.ModTime()
 	e.detectLanguage()
@@ -1144,8 +1145,10 @@ func (e *EditorWidget) SetVimMode(mode VimMode) {
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (e *EditorWidget) applySyntaxHighlighting() {
+	// Всегда синхронизируем Entry с текущим текстом
+	e.content.SetText(e.textContent)
+
 	if e.lexer == nil {
-		e.content.SetText(e.textContent)
 		return
 	}
 
@@ -1157,7 +1160,6 @@ func (e *EditorWidget) applySyntaxHighlighting() {
 		// Токенизируем код
 		iterator, err := e.lexer.Tokenise(nil, e.textContent)
 		if err != nil {
-			e.content.SetText(e.textContent)
 			return
 		}
 
