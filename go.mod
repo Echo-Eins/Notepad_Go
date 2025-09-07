@@ -7,6 +7,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/lithammer/fuzzysearch v1.1.8
+	github.com/sergi/go-diff v1.0.0
 )
 
 require (

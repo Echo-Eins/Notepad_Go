@@ -573,3 +573,75 @@ func (c *SelectAllCommand) Undo(editor *EditorWidget) error {
 func (c *SelectAllCommand) GetDescription() string {
 	return "Select all text"
 }
+
+// AddBookmarkCommand - добавление закладки
+type AddBookmarkCommand struct {
+	line int
+	name string
+}
+
+func (c *AddBookmarkCommand) Execute(editor *EditorWidget) error {
+	editor.AddBookmark(c.line, c.name)
+	return nil
+}
+
+func (c *AddBookmarkCommand) Undo(editor *EditorWidget) error {
+	editor.RemoveBookmark(c.line)
+	return nil
+}
+
+func (c *AddBookmarkCommand) GetDescription() string {
+	return fmt.Sprintf("Add bookmark '%s' at %d", c.name, c.line)
+}
+
+// RemoveBookmarkCommand - удаление закладки
+type RemoveBookmarkCommand struct {
+	line int
+	name string
+}
+
+func (c *RemoveBookmarkCommand) Execute(editor *EditorWidget) error {
+	if editor.bookmarks != nil {
+		if bm, ok := editor.bookmarks[c.line]; ok {
+			c.name = bm.Name
+		}
+	}
+	editor.RemoveBookmark(c.line)
+	return nil
+}
+
+func (c *RemoveBookmarkCommand) Undo(editor *EditorWidget) error {
+	if c.name != "" {
+		editor.AddBookmark(c.line, c.name)
+	}
+	return nil
+}
+
+func (c *RemoveBookmarkCommand) GetDescription() string {
+	return fmt.Sprintf("Remove bookmark at %d", c.line)
+}
+
+// GoToBookmarkCommand - переход к закладке
+type GoToBookmarkCommand struct {
+	line        int
+	oldPosition TextPosition
+}
+
+func (c *GoToBookmarkCommand) Execute(editor *EditorWidget) error {
+	c.oldPosition = TextPosition{Row: editor.cursorRow, Col: editor.cursorCol}
+	if err := editor.GoToBookmark(c.line); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *GoToBookmarkCommand) Undo(editor *EditorWidget) error {
+	editor.cursorRow = c.oldPosition.Row
+	editor.cursorCol = c.oldPosition.Col
+	editor.updateDisplay()
+	return nil
+}
+
+func (c *GoToBookmarkCommand) GetDescription() string {
+	return fmt.Sprintf("Go to bookmark at %d", c.line)
+}

@@ -271,6 +271,9 @@ type KeyBindingsConfig struct {
 	OpenPowerShell string `json:"open_powershell"`
 	OpenCMD        string `json:"open_cmd"`
 
+	// Сравнение файлов
+	CompareFiles string `json:"compare_files"`
+
 	// Кастомные клавиши
 	CustomBindings map[string]string `json:"custom_bindings"`
 
@@ -635,6 +638,9 @@ func DefaultConfig() *Config {
 			OpenTerminal:   "Ctrl+Shift+`",
 			OpenPowerShell: "Ctrl+Shift+P",
 			OpenCMD:        "Ctrl+Shift+C",
+
+			// Сравнение файлов
+			CompareFiles: "Ctrl+Shift+D",
 
 			CustomBindings: map[string]string{},
 
@@ -1345,6 +1351,8 @@ func (cm *ConfigManager) getKeyBindingsValue(kb *KeyBindingsConfig, key string) 
 		return kb.ToggleMinimap
 	case "command_palette":
 		return kb.CommandPalette
+	case "compare_files":
+		return kb.CompareFiles
 	case "enable_vim_bindings":
 		return kb.EnableVimBindings
 	}
@@ -1393,6 +1401,10 @@ func (cm *ConfigManager) setKeyBindingsValue(kb *KeyBindingsConfig, key string, 
 	case "command_palette":
 		if str, ok := value.(string); ok {
 			kb.CommandPalette = str
+		}
+	case "compare_files":
+		if str, ok := value.(string); ok {
+			kb.CompareFiles = str
 		}
 	case "enable_vim_bindings":
 		if b, ok := value.(bool); ok {
@@ -1627,6 +1639,7 @@ func (cm *ConfigManager) validateKeyBindingsConfig(kb *KeyBindingsConfig) error 
 		"toggle_sidebar":  kb.ToggleSidebar,
 		"toggle_minimap":  kb.ToggleMinimap,
 		"command_palette": kb.CommandPalette,
+		"compare_files":   kb.CompareFiles,
 	}
 
 	for action, binding := range keyBindings {

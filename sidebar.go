@@ -173,7 +173,6 @@ func (s *SidebarWidget) setupComponents() {
 		s.activeFilter = selected
 		s.applyFilterAndSearch()
 	})
-	s.filterSelect.SetSelected("All")
 
 	// Создаем дерево файлов
 	s.fileTree = widget.NewTree(
@@ -204,6 +203,9 @@ func (s *SidebarWidget) setupComponents() {
 		s.lastTap = uid
 		s.lastTapTime = now
 	}
+
+	// Инициализация фильтра по умолчанию после создания дерева
+	s.filterSelect.SetSelected("All")
 
 	// Кнопки управления
 	refreshBtn := NewAnimatedButtonWithIcon("", theme.ViewRefreshIcon(), func() {
@@ -424,7 +426,9 @@ func (s *SidebarWidget) SetRootPath(path string) error {
 	s.startWatching()
 
 	// Обновляем UI
-	s.fileTree.Refresh()
+	if s.fileTree != nil {
+		s.fileTree.Refresh()
+	}
 	s.updateStatus(fmt.Sprintf("Loaded: %s", path))
 
 	if s.onPathChanged != nil {
@@ -494,7 +498,9 @@ func (s *SidebarWidget) applyFilterAndSearch() {
 		}
 	}
 
-	s.fileTree.Refresh()
+	if s.fileTree != nil {
+		s.fileTree.Refresh()
+	}
 	s.updateSearchResults()
 }
 

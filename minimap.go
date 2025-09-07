@@ -619,7 +619,20 @@ func (m *MinimapWidget) drawLine(line *MinimapLine, x, y float32) {
 		return
 	}
 
+	line.IsBookmarked = false
+	if m.editor != nil && m.editor.IsLineBookmarked(line.LineNumber) {
+		line.IsBookmarked = true
+	}
+
 	currentX := x
+
+	if line.IsBookmarked {
+		marker := canvas.NewRectangle(color.NRGBA{255, 215, 0, 255})
+		marker.Resize(fyne.NewSize(2, m.lineHeight))
+		marker.Move(fyne.NewPos(currentX, y))
+		m.canvas.Add(marker)
+		currentX += 3
+	}
 
 	// Рисуем номер строки если включено
 	if m.showLineNumbers {

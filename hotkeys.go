@@ -370,6 +370,9 @@ func (hm *HotkeyManager) registerStandardActions() {
 	hm.actions["open_powershell"] = hm.actionOpenPowerShell
 	hm.actions["open_cmd"] = hm.actionOpenCMD
 
+	// Сравнение файлов
+	hm.actions["compare_files"] = hm.actionCompareFiles
+
 	// Vim специальные действия
 	hm.actions["vim_escape"] = hm.actionVimEscape
 	hm.actions["vim_insert"] = hm.actionVimInsert
@@ -447,6 +450,9 @@ func (hm *HotkeyManager) loadFromConfig() {
 	hm.registerShortcut("open_terminal", kb.OpenTerminal, "open_terminal", ContextGlobal, "Terminal")
 	hm.registerShortcut("open_powershell", kb.OpenPowerShell, "open_powershell", ContextGlobal, "Terminal")
 	hm.registerShortcut("open_cmd", kb.OpenCMD, "open_cmd", ContextGlobal, "Terminal")
+
+	// Сравнение файлов
+	hm.registerShortcut("compare_files", kb.CompareFiles, "compare_files", ContextGlobal, "Tools")
 
 	// Кастомные привязки
 	for action, keyBinding := range kb.CustomBindings {
@@ -2111,6 +2117,14 @@ func (hm *HotkeyManager) actionOpenCMD(context HotkeyContext) bool {
 		return false
 	}
 
+	return true
+}
+
+func (hm *HotkeyManager) actionCompareFiles(context HotkeyContext) bool {
+	if hm.app == nil {
+		return false
+	}
+	hm.app.compareFiles()
 	return true
 }
 

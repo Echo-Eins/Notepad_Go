@@ -47,6 +47,7 @@ type App struct {
 	currentSearchIndex int
 	lastSearchText     string
 	statusBar          *widget.Label
+	breadcrumb         *fyne.Container
 	appTheme           *AppTheme
 }
 
@@ -181,6 +182,7 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("Terminal (CMD)", a.openCMD),
 		fyne.NewMenuItem("Terminal (PowerShell)", a.openPowerShell),
 		fyne.NewMenuItem("Custom Tools", a.showCustomTools),
+		fyne.NewMenuItem("Compare Files...", a.compareFiles),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Format Code", a.formatCode),
 		fyne.NewMenuItem("Lint Code", a.lintCode),
@@ -205,6 +207,12 @@ func (a *App) createMainLayout() {
 	// Создаем статус бар
 	statusBarContainer := a.createStatusBar()
 
+	// Создаем контейнер для хлебных крошек и верхней панели
+	if a.breadcrumb == nil {
+		a.breadcrumb = container.NewHBox()
+	}
+	topContainer := container.NewVBox(a.breadcrumb)
+
 	// Основной контент с редактором и миниатюрой
 	var editorContent fyne.CanvasObject
 	if a.config.Minimap.IsVisible {
@@ -215,10 +223,13 @@ func (a *App) createMainLayout() {
 
 	// Добавляем боковую панель если видима
 	if a.config.Sidebar.IsVisible {
-		a.mainContent = container.NewBorder(nil, statusBarContainer, a.sidebar, nil, editorContent)
+		a.mainContent = container.NewBorder(topContainer, statusBarContainer, a.sidebar, nil, editorContent)
 	} else {
-		a.mainContent = container.NewBorder(nil, statusBarContainer, nil, nil, editorContent)
+		a.mainContent = container.NewBorder(topContainer, statusBarContainer, nil, nil, editorContent)
 	}
+
+	// Обновляем хлебные крошки для текущего файла
+	a.updateBreadcrumb(a.currentFile)
 
 	a.mainWin.SetContent(a.mainContent)
 }
@@ -267,7 +278,6 @@ func (a *App) setupCallbacks() {
 				a.minimap.SetContent(content)
 			}
 		}
-
 		a.editor.onCursorChanged = func(row, col int) {
 			// Обновляем статус бар
 			a.updateStatusBar(row, col)
@@ -277,6 +287,13 @@ func (a *App) setupCallbacks() {
 			a.currentFile = filepath
 			a.updateTitle()
 			a.addToRecentFiles(filepath)
+			a.updateBreadcrumb(filepath)
+		}
+
+		a.editor.onBookmarksChanged = func() {
+			if a.minimap != nil {
+				a.minimap.Refresh()
+			}
 		}
 	}
 
@@ -349,6 +366,21 @@ func (a *App) setupHotkeys() {
 		a.toggleMinimap()
 		return true
 	})
+
+	a.hotkeyManager.RegisterCustomAction("app_add_bookmark", func(ctx HotkeyContext) bool {
+		a.addBookmark()
+		return true
+	})
+
+	a.hotkeyManager.RegisterCustomAction("app_go_to_bookmark", func(ctx HotkeyContext) bool {
+		a.goToBookmark()
+		return true
+	})
+
+	a.hotkeyManager.RegisterCustomAction("app_remove_bookmark", func(ctx HotkeyContext) bool {
+		a.removeBookmark()
+		return true
+	})
 }
 
 // File operations
@@ -377,6 +409,7 @@ func (a *App) createNewFile() {
 		a.editor.isDirty = false
 		a.currentFile = ""
 		a.updateTitle()
+		a.updateBreadcrumb("")
 	}
 }
 
@@ -398,6 +431,7 @@ func (a *App) loadFile(path string) {
 			a.currentFile = path
 			a.updateTitle()
 			a.addToRecentFiles(path)
+			a.updateBreadcrumb(path)
 		}
 	}
 }
@@ -653,6 +687,83 @@ func (a *App) goToLine(line int) {
 	}
 }
 
+// addBookmark adds a bookmark at current line
+func (a *App) addBookmark() {
+	if a.editor == nil {
+		return
+	}
+	line := a.editor.cursorRow + 1
+	entry := widget.NewEntry()
+	entry.SetText(fmt.Sprintf("Bookmark %d", line))
+	content := container.NewVBox(
+		widget.NewLabel(fmt.Sprintf("Bookmark name for line %d:", line)),
+		entry,
+	)
+	dialog.NewCustomConfirm("Add Bookmark", "Add", "Cancel", content, func(confirmed bool) {
+		if confirmed {
+			cmd := &AddBookmarkCommand{line: line, name: entry.Text}
+			_ = cmd.Execute(a.editor)
+		}
+	}, a.mainWin).Show()
+}
+
+// goToBookmark shows bookmarks and jumps to selected
+func (a *App) goToBookmark() {
+	if a.editor == nil {
+		return
+	}
+	bookmarks := a.editor.GetBookmarks()
+	if len(bookmarks) == 0 {
+		dialog.ShowInformation("Bookmarks", "No bookmarks defined", a.mainWin)
+		return
+	}
+	names := make([]string, len(bookmarks))
+	for i, bm := range bookmarks {
+		names[i] = fmt.Sprintf("%s (line %d)", bm.Name, bm.Line)
+	}
+	list := widget.NewList(
+		func() int { return len(names) },
+		func() fyne.CanvasObject { return widget.NewLabel("Bookmark") },
+		func(i widget.ListItemID, o fyne.CanvasObject) { o.(*widget.Label).SetText(names[i]) },
+	)
+	list.OnSelected = func(id widget.ListItemID) {
+		if id >= 0 && id < len(bookmarks) {
+			cmd := &GoToBookmarkCommand{line: bookmarks[id].Line}
+			_ = cmd.Execute(a.editor)
+		}
+	}
+	dialog.NewCustom("Bookmarks", "Close", container.NewScroll(list), a.mainWin).Show()
+}
+
+// removeBookmark deletes selected bookmark
+func (a *App) removeBookmark() {
+	if a.editor == nil {
+		return
+	}
+	bookmarks := a.editor.GetBookmarks()
+	if len(bookmarks) == 0 {
+		dialog.ShowInformation("Bookmarks", "No bookmarks defined", a.mainWin)
+		return
+	}
+	names := make([]string, len(bookmarks))
+	for i, bm := range bookmarks {
+		names[i] = fmt.Sprintf("%s (line %d)", bm.Name, bm.Line)
+	}
+	list := widget.NewList(
+		func() int { return len(names) },
+		func() fyne.CanvasObject { return widget.NewLabel("Bookmark") },
+		func(i widget.ListItemID, o fyne.CanvasObject) { o.(*widget.Label).SetText(names[i]) },
+	)
+	list.OnSelected = func(id widget.ListItemID) {
+		if id >= 0 && id < len(bookmarks) {
+			cmd := &RemoveBookmarkCommand{line: bookmarks[id].Line}
+			_ = cmd.Execute(a.editor)
+			list.UnselectAll()
+		}
+	}
+	dialog.NewCustom("Remove Bookmark", "Close", container.NewScroll(list), a.mainWin).Show()
+}
+
 func (a *App) showGoToSymbol() {
 	if a.editor == nil || a.currentFile == "" {
 		return
@@ -762,7 +873,11 @@ func (a *App) getAvailableCommands() []Command {
 		{Name: "Replace", Shortcut: "Ctrl+H", Icon: theme.SearchReplaceIcon(), Action: a.showReplace},
 		{Name: "Toggle Sidebar", Shortcut: "Ctrl+B", Icon: theme.MenuIcon(), Action: a.toggleSidebar}, // Исправлено: заменено ViewListIcon на MenuIcon
 		{Name: "Toggle Minimap", Shortcut: "Ctrl+M", Icon: theme.ViewFullScreenIcon(), Action: a.toggleMinimap},
+		{Name: "Compare Files", Shortcut: "Ctrl+Shift+D", Icon: theme.ViewRefreshIcon(), Action: a.compareFiles},
 		{Name: "Format Code", Shortcut: "Shift+Alt+F", Icon: theme.DocumentIcon(), Action: a.formatCode},
+		{Name: "Add Bookmark", Shortcut: "Ctrl+F2", Icon: theme.ContentAddIcon(), Action: a.addBookmark},
+		{Name: "Go to Bookmark", Shortcut: "F2", Icon: theme.NavigateNextIcon(), Action: a.goToBookmark},
+		{Name: "Remove Bookmark", Shortcut: "Shift+F2", Icon: theme.ContentRemoveIcon(), Action: a.removeBookmark},
 		{Name: "Preferences", Shortcut: "", Icon: theme.SettingsIcon(), Action: a.showPreferences},
 		{Name: "About", Shortcut: "", Icon: theme.InfoIcon(), Action: a.showAbout},
 	}
@@ -1662,6 +1777,31 @@ func (a *App) updateStatusBar(row, col int) {
 		status := fmt.Sprintf("Line %d, Column %d | Total Lines: %d", row+1, col+1, totalLines)
 		a.statusBar.SetText(status)
 	}
+}
+
+// updateBreadcrumb обновляет отображение пути к текущему файлу
+func (a *App) updateBreadcrumb(path string) {
+	if a.breadcrumb == nil {
+		return
+	}
+
+	a.breadcrumb.Objects = nil
+	if path == "" {
+		a.breadcrumb.Add(widget.NewLabel(""))
+	} else {
+		cleaned := filepath.Clean(path)
+		parts := strings.Split(filepath.ToSlash(cleaned), "/")
+		for i, part := range parts {
+			if part == "" {
+				continue
+			}
+			a.breadcrumb.Add(widget.NewLabel(part))
+			if i < len(parts)-1 {
+				a.breadcrumb.Add(widget.NewLabel(">"))
+			}
+		}
+	}
+	a.breadcrumb.Refresh()
 }
 
 func (a *App) scrollEditorTo(position float32) {

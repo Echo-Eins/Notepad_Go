@@ -115,6 +115,18 @@ type EditorWidget struct {
 	fileName     string
 
 	vimMode VimMode
+
+	// Bookmarks
+	bookmarks map[int]Bookmark
+
+	// Bookmark callbacks
+	onBookmarksChanged func()
+}
+
+// Bookmark represents a bookmark in editor
+type Bookmark struct {
+	Line int
+	Name string
 }
 
 // IsDirty возвращает true, если есть несохраненные изменения
@@ -184,6 +196,57 @@ func (e *EditorWidget) SetContent(content string) {
 	e.content.SetText(content)
 	e.isDirty = true
 	e.updateDisplay()
+}
+
+// AddBookmark adds a bookmark at specific line
+func (e *EditorWidget) AddBookmark(line int, name string) {
+	if line < 1 {
+		return
+	}
+	if e.bookmarks == nil {
+		e.bookmarks = make(map[int]Bookmark)
+	}
+	e.bookmarks[line] = Bookmark{Line: line, Name: name}
+	e.lineNumbers.Refresh()
+	if e.onBookmarksChanged != nil {
+		e.onBookmarksChanged()
+	}
+}
+
+// RemoveBookmark deletes bookmark from line
+func (e *EditorWidget) RemoveBookmark(line int) {
+	if e.bookmarks == nil {
+		return
+	}
+	delete(e.bookmarks, line)
+	e.lineNumbers.Refresh()
+	if e.onBookmarksChanged != nil {
+		e.onBookmarksChanged()
+	}
+}
+
+// IsLineBookmarked checks if line has bookmark
+func (e *EditorWidget) IsLineBookmarked(line int) bool {
+	if e.bookmarks == nil {
+		return false
+	}
+	_, ok := e.bookmarks[line]
+	return ok
+}
+
+// GetBookmarks returns all bookmarks
+func (e *EditorWidget) GetBookmarks() []Bookmark {
+	result := []Bookmark{}
+	for _, b := range e.bookmarks {
+		result = append(result, b)
+	}
+	return result
+}
+
+// GoToBookmark moves cursor to bookmark line
+func (e *EditorWidget) GoToBookmark(line int) error {
+	cmd := &GoToLineCommand{lineNumber: line}
+	return cmd.Execute(e)
 }
 
 // getLineCount возвращает количество строк
@@ -330,7 +393,11 @@ func (e *EditorWidget) setupComponents() {
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			label := obj.(*widget.Label)
 			lineNum := id + 1
-			label.SetText(fmt.Sprintf("%d", lineNum))
+			marker := ""
+			if e.IsLineBookmarked(lineNum) {
+				marker = "★ "
+			}
+			label.SetText(fmt.Sprintf("%s%d", marker, lineNum))
 
 			// Подсветка текущей строки
 			if lineNum == e.cursorRow+1 {
