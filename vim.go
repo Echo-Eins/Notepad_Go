@@ -1628,9 +1628,8 @@ func applySubstitution(line string, re *regexp.Regexp, replacement string, globa
 		return line, false
 	}
 
-	var buf strings.Builder
-	re.ExpandString(&buf, replacement, line, idx)
-	newLine := line[:idx[0]] + buf.String() + line[idx[1]:]
+	repl := re.ExpandString(nil, replacement, line, idx)
+	newLine := line[:idx[0]] + string(repl) + line[idx[1]:]
 	return newLine, true
 }
 

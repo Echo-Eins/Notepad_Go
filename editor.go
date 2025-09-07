@@ -1116,7 +1116,7 @@ func (e *EditorWidget) handleExternalFileChange() {
 	e.lastModified = modTime
 
 	// Все UI-операции должны выполняться в главном потоке
-	fyne.CurrentApp().Driver().RunOnMain(func() {
+	fyne.Do(func() {
 		win := fyne.CurrentApp().Driver().AllWindows()[0]
 		message := "File has been modified outside the editor."
 		if e.isDirty {
