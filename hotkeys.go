@@ -336,6 +336,7 @@ func (hm *HotkeyManager) registerStandardActions() {
 	hm.actions["go_to_line"] = hm.actionGoToLine
 	hm.actions["go_to_symbol"] = hm.actionGoToSymbol
 	hm.actions["go_to_definition"] = hm.actionGoToDefinition
+	hm.actions["file_switcher"] = hm.actionFileSwitcher
 
 	// Интерфейс
 	hm.actions["toggle_sidebar"] = hm.actionToggleSidebar
@@ -413,6 +414,7 @@ func (hm *HotkeyManager) loadFromConfig() {
 	hm.registerShortcut("go_to_line", kb.GoToLine, "go_to_line", ContextEditor, "Search & Navigation")
 	hm.registerShortcut("go_to_symbol", kb.GoToSymbol, "go_to_symbol", ContextEditor, "Search & Navigation")
 	hm.registerShortcut("go_to_definition", kb.GoToDefinition, "go_to_definition", ContextEditor, "Search & Navigation")
+	hm.registerShortcut("file_switcher", kb.FileSwitcher, "file_switcher", ContextGlobal, "Search & Navigation")
 
 	// Интерфейс
 	hm.registerShortcut("toggle_sidebar", kb.ToggleSidebar, "toggle_sidebar", ContextGlobal, "Interface")
@@ -1832,6 +1834,15 @@ func (hm *HotkeyManager) actionCommandPalette(context HotkeyContext) bool {
 	return true
 }
 
+func (hm *HotkeyManager) actionFileSwitcher(context HotkeyContext) bool {
+	if hm.app == nil {
+		return false
+	}
+
+	hm.app.showFileSwitcher()
+	return true
+}
+
 func (hm *HotkeyManager) actionFileExplorer(context HotkeyContext) bool {
 	if hm.app == nil {
 		return false
@@ -2257,6 +2268,7 @@ func (hm *HotkeyManager) getActionDescription(actionID string) string {
 		"toggle_terminal":  "Show/hide terminal",
 		"command_palette":  "Open command palette",
 		"file_explorer":    "Open file explorer",
+		"file_switcher":    "Switch between recent files",
 	}
 
 	if desc, exists := descriptions[actionID]; exists {

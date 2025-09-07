@@ -6,6 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.6.3
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/lithammer/fuzzysearch v1.1.8
 )
 
 require (

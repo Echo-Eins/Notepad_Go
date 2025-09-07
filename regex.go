@@ -338,14 +338,14 @@ func (ca *CodeAnalyzer) FindErrors(output, language string) []CompilerError {
 	patternName := language + "_error"
 	matches, err := ca.matcher.Match(patternName, output)
 	if err != nil {
-		return nil
+		return []CompilerError{}
 	}
 
 	errors := make([]CompilerError, 0, len(matches))
 	for _, match := range matches {
 		compErr := CompilerError{
 			File:    match.Groups["file"],
-			Message: match.Groups["message"],
+			Message: strings.TrimSpace(match.Groups["message"]),
 			Text:    match.Text,
 		}
 

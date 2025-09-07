@@ -518,6 +518,7 @@ func (dm *DialogManager) createKeyBindingsSettings(config *Config) fyne.CanvasOb
 		{"Find", config.KeyBindings.Find, "find"},
 		{"Replace", config.KeyBindings.Replace, "replace"},
 		{"Go to Line", config.KeyBindings.GoToLine, "go_to_line"},
+		{"File Switcher", config.KeyBindings.FileSwitcher, "file_switcher"},
 		{"Toggle Sidebar", config.KeyBindings.ToggleSidebar, "toggle_sidebar"},
 		{"Toggle Minimap", config.KeyBindings.ToggleMinimap, "toggle_minimap"},
 		{"Command Palette", config.KeyBindings.CommandPalette, "command_palette"},
@@ -580,6 +581,8 @@ func (dm *DialogManager) createKeyBindingsSettings(config *Config) fyne.CanvasOb
 							config.KeyBindings.Replace = newBinding
 						case "go_to_line":
 							config.KeyBindings.GoToLine = newBinding
+						case "file_switcher":
+							config.KeyBindings.FileSwitcher = newBinding
 						case "toggle_sidebar":
 							config.KeyBindings.ToggleSidebar = newBinding
 						case "toggle_minimap":

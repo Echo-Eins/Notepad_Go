@@ -97,10 +97,11 @@ type EditorConfig struct {
 	AutoSurround      bool `json:"auto_surround"`
 
 	// Подсветка и навигация
-	SyntaxHighlighting bool `json:"syntax_highlighting"`
-	BracketMatching    bool `json:"bracket_matching"`
-	HighlightMatches   bool `json:"highlight_matches"`
-	VariableHighlight  bool `json:"variable_highlight"`
+	SyntaxHighlighting   bool `json:"syntax_highlighting"`
+	BracketMatching      bool `json:"bracket_matching"`
+	HighlightMatches     bool `json:"highlight_matches"`
+	HighlightCurrentWord bool `json:"highlight_current_word"`
+	VariableHighlight    bool `json:"variable_highlight"`
 
 	// Автосохранение
 	AutoSave        bool   `json:"auto_save"`
@@ -236,6 +237,7 @@ type KeyBindingsConfig struct {
 	GoToLine       string `json:"go_to_line"`
 	GoToSymbol     string `json:"go_to_symbol"`
 	GoToDefinition string `json:"go_to_definition"`
+	FileSwitcher   string `json:"file_switcher"`
 
 	// Панели и интерфейс
 	ToggleSidebar  string `json:"toggle_sidebar"`
@@ -482,10 +484,11 @@ func DefaultConfig() *Config {
 			AutoCloseQuotes:   true,
 			AutoSurround:      true,
 
-			SyntaxHighlighting: true,
-			BracketMatching:    true,
-			HighlightMatches:   true,
-			VariableHighlight:  true,
+			SyntaxHighlighting:   true,
+			BracketMatching:      true,
+			HighlightMatches:     true,
+			HighlightCurrentWord: true,
+			VariableHighlight:    true,
 
 			AutoSave:        true,
 			AutoSaveDelay:   300, // 5 минут
@@ -599,6 +602,7 @@ func DefaultConfig() *Config {
 			GoToLine:       "Ctrl+G",
 			GoToSymbol:     "Ctrl+Shift+O",
 			GoToDefinition: "F12",
+			FileSwitcher:   "Ctrl+P",
 
 			// Панели и интерфейс
 			ToggleSidebar:  "Ctrl+B",
@@ -670,6 +674,30 @@ func DefaultConfig() *Config {
 						ErrorPattern:     `^(.+):(\d+):(\d+):\s*(.+)$`,
 						WorkingDirectory: "",
 					},
+					"rust": {
+						Name:             "clippy",
+						Path:             "clippy-driver",
+						Args:             []string{},
+						Enabled:          true,
+						ErrorPattern:     `error(?:\[(\w+)\])?: (.+)\s+--> ([^:]+):(\d+):(\d+)`,
+						WorkingDirectory: "",
+					},
+					"c": {
+						Name:             "clang-tidy",
+						Path:             "clang-tidy",
+						Args:             []string{},
+						Enabled:          true,
+						ErrorPattern:     `([^:]+):(\d+):(\d+):\s*(error|warning):\s*(.+)`,
+						WorkingDirectory: "",
+					},
+					"java": {
+						Name:             "checkstyle",
+						Path:             "checkstyle",
+						Args:             []string{"-c", "/google_checks.xml"},
+						Enabled:          true,
+						ErrorPattern:     `([^:]+):(\d+):\s*(error|warning):\s*(.+)`,
+						WorkingDirectory: "",
+					},
 				},
 			},
 
@@ -687,6 +715,24 @@ func DefaultConfig() *Config {
 						Name:    "black",
 						Path:    "black",
 						Args:    []string{"--line-length=120"},
+						Enabled: true,
+					},
+					"rust": {
+						Name:    "rustfmt",
+						Path:    "rustfmt",
+						Args:    []string{"--emit=stdout"},
+						Enabled: true,
+					},
+					"c": {
+						Name:    "clang-format",
+						Path:    "clang-format",
+						Args:    []string{"-style=LLVM"},
+						Enabled: true,
+					},
+					"java": {
+						Name:    "google-java-format",
+						Path:    "google-java-format",
+						Args:    []string{"-"},
 						Enabled: true,
 					},
 				},
@@ -1291,6 +1337,8 @@ func (cm *ConfigManager) getKeyBindingsValue(kb *KeyBindingsConfig, key string) 
 		return kb.Replace
 	case "go_to_line":
 		return kb.GoToLine
+	case "file_switcher":
+		return kb.FileSwitcher
 	case "toggle_sidebar":
 		return kb.ToggleSidebar
 	case "toggle_minimap":
@@ -1329,6 +1377,10 @@ func (cm *ConfigManager) setKeyBindingsValue(kb *KeyBindingsConfig, key string, 
 	case "go_to_line":
 		if str, ok := value.(string); ok {
 			kb.GoToLine = str
+		}
+	case "file_switcher":
+		if str, ok := value.(string); ok {
+			kb.FileSwitcher = str
 		}
 	case "toggle_sidebar":
 		if str, ok := value.(string); ok {
@@ -1571,6 +1623,7 @@ func (cm *ConfigManager) validateKeyBindingsConfig(kb *KeyBindingsConfig) error 
 		"find":            kb.Find,
 		"replace":         kb.Replace,
 		"go_to_line":      kb.GoToLine,
+		"file_switcher":   kb.FileSwitcher,
 		"toggle_sidebar":  kb.ToggleSidebar,
 		"toggle_minimap":  kb.ToggleMinimap,
 		"command_palette": kb.CommandPalette,

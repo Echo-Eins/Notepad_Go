@@ -276,6 +276,9 @@ func formatCode(code, language string) (string, error) {
 	case "rust":
 		// Форматирование через rustfmt
 		return runFormatter("rustfmt", []string{"--emit=stdout"}, code)
+	case "c":
+		// Форматирование через clang-format
+		return runFormatter("clang-format", []string{"-style=LLVM"}, code)
 	case "java":
 		// Форматирование через google-java-format
 		return runFormatter("google-java-format", []string{"-"}, code)

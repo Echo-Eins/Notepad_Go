@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"fyne.io/fyne/v2"
@@ -9,8 +10,11 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/lithammer/fuzzysearch/fuzzy"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -137,6 +141,7 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("Save", a.saveFile),
 		fyne.NewMenuItem("Save As...", a.saveAsFile),
 		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("File Switcher...", a.showFileSwitcher),
 		fyne.NewMenuItem("Recent Files", a.showRecentFiles),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Exit", func() {
@@ -751,6 +756,7 @@ func (a *App) getAvailableCommands() []Command {
 	return []Command{
 		{Name: "New File", Shortcut: "Ctrl+N", Icon: theme.DocumentCreateIcon(), Action: a.newFile},
 		{Name: "Open File", Shortcut: "Ctrl+O", Icon: theme.FolderOpenIcon(), Action: a.openFile},
+		{Name: "File Switcher", Shortcut: "Ctrl+P", Icon: theme.DocumentIcon(), Action: a.showFileSwitcher},
 		{Name: "Save File", Shortcut: "Ctrl+S", Icon: theme.DocumentSaveIcon(), Action: a.saveFile},
 		{Name: "Find", Shortcut: "Ctrl+F", Icon: theme.SearchIcon(), Action: a.showFind},
 		{Name: "Replace", Shortcut: "Ctrl+H", Icon: theme.SearchReplaceIcon(), Action: a.showReplace},
@@ -922,12 +928,12 @@ func (a *App) lintCode() {
 	a.saveFile()
 
 	// Запускаем линтер
-	output, err := a.terminalMgr.RunCommand(
-		fmt.Sprintf("%s %s %s", linterConfig.Path, strings.Join(linterConfig.Args, " "), a.currentFile),
-		filepath.Dir(a.currentFile),
-	)
+	cmdParts := append([]string{linterConfig.Path}, linterConfig.Args...)
+	cmdParts = append(cmdParts, a.currentFile)
+	command := strings.Join(cmdParts, " ")
+	output, err := a.terminalMgr.RunCommand(command, filepath.Dir(a.currentFile))
 
-	if err != nil && output == "" {
+	if err != nil && strings.TrimSpace(output) == "" {
 		dialog.ShowError(fmt.Errorf("Failed to run linter: %v", err), a.mainWin)
 		return
 	}
@@ -1095,6 +1101,63 @@ func (a *App) showKeyBindings() {
 
 func (a *App) showAbout() {
 	a.dialogManager.ShowAboutDialog()
+}
+
+func (a *App) showFileSwitcher() {
+	if len(a.recentFiles) == 0 {
+		dialog.ShowInformation("File Switcher", "No recent files", a.mainWin)
+		return
+	}
+
+	searchEntry := widget.NewEntry()
+	searchEntry.SetPlaceHolder("Type to search...")
+
+	filteredFiles := append([]string{}, a.recentFiles...)
+	fileList := widget.NewList(
+		func() int { return len(filteredFiles) },
+		func() fyne.CanvasObject {
+			return container.NewHBox(
+				widget.NewIcon(theme.DocumentIcon()),
+				widget.NewLabel("File"),
+			)
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			box := o.(*fyne.Container)
+			label := box.Objects[1].(*widget.Label)
+			label.SetText(filepath.Base(filteredFiles[i]))
+		},
+	)
+
+	searchEntry.OnChanged = func(text string) {
+		if text == "" {
+			filteredFiles = append([]string{}, a.recentFiles...)
+		} else {
+			matches := fuzzy.RankFindNormalizedFold(text, a.recentFiles)
+			sort.Sort(matches)
+			filteredFiles = filteredFiles[:0]
+			for _, m := range matches {
+				filteredFiles = append(filteredFiles, a.recentFiles[m.OriginalIndex])
+			}
+		}
+		fileList.Refresh()
+	}
+
+	var switcherDialog dialog.Dialog
+	fileList.OnSelected = func(id widget.ListItemID) {
+		if id >= 0 && id < len(filteredFiles) {
+			a.loadFile(filteredFiles[id])
+			if switcherDialog != nil {
+				switcherDialog.Hide()
+			}
+		}
+	}
+
+	content := container.NewBorder(searchEntry, nil, nil, nil, fileList)
+	switcherDialog = dialog.NewCustom("File Switcher", "Close", content, a.mainWin)
+	switcherDialog.Resize(fyne.NewSize(600, 400))
+	switcherDialog.Show()
+	AnimateShow(content)
+	a.mainWin.Canvas().Focus(searchEntry)
 }
 
 func (a *App) showRecentFiles() {
@@ -1374,10 +1437,132 @@ func (a *App) replaceCurrentMatch(find, replace string) {
 }
 
 func (a *App) performFindInFiles(searchText, path, include, exclude string) {
-	// Здесь должна быть реализация поиска в файлах
-	// Пока показываем заглушку
-	dialog.ShowInformation("Find in Files",
-		fmt.Sprintf("Searching for '%s' in %s", searchText, path), a.mainWin)
+	if path == "" {
+		path = "."
+	}
+
+	// Компилируем регулярное выражение
+	re, err := regexp.Compile(searchText)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("invalid regex: %w", err), a.mainWin)
+		return
+	}
+
+	// Парсим паттерны включения и исключения
+	parsePatterns := func(p string) []string {
+		var patterns []string
+		for _, part := range strings.Split(p, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				patterns = append(patterns, part)
+			}
+		}
+		return patterns
+	}
+
+	includePatterns := parsePatterns(include)
+	excludePatterns := parsePatterns(exclude)
+
+	matchesPath := func(p string) bool {
+		name := filepath.Base(p)
+		for _, pattern := range excludePatterns {
+			if ok, _ := filepath.Match(pattern, name); ok {
+				return false
+			}
+		}
+		if len(includePatterns) == 0 {
+			return true
+		}
+		for _, pattern := range includePatterns {
+			if ok, _ := filepath.Match(pattern, name); ok {
+				return true
+			}
+		}
+		return false
+	}
+
+	type fileResult struct {
+		File  string
+		Line  int
+		Col   int
+		Match string
+	}
+
+	var results []fileResult
+
+	// Обходим файлы в директории
+	filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !matchesPath(p) {
+			return nil
+		}
+
+		file, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		lineNum := 1
+		for scanner.Scan() {
+			line := scanner.Text()
+			locs := re.FindAllStringIndex(line, -1)
+			for _, loc := range locs {
+				results = append(results, fileResult{
+					File:  p,
+					Line:  lineNum,
+					Col:   loc[0],
+					Match: line[loc[0]:loc[1]],
+				})
+			}
+			lineNum++
+		}
+		return nil
+	})
+
+	if len(results) == 0 {
+		dialog.ShowInformation("Find in Files", "No matches found", a.mainWin)
+		return
+	}
+
+	// Создаем список результатов
+	resultList := widget.NewList(
+		func() int { return len(results) },
+		func() fyne.CanvasObject {
+			return widget.NewLabel("")
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			label := o.(*widget.Label)
+			r := results[i]
+			label.SetText(fmt.Sprintf("%s:%d:%d - %s", r.File, r.Line, r.Col+1, strings.TrimSpace(r.Match)))
+		},
+	)
+
+	resultList.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(results) {
+			return
+		}
+		r := results[id]
+		a.loadFile(r.File)
+		a.goToLine(r.Line)
+		if a.editor != nil {
+			a.editor.cursorCol = r.Col
+			a.editor.selectionStart = TextPosition{Row: r.Line - 1, Col: r.Col}
+			a.editor.selectionEnd = TextPosition{Row: r.Line - 1, Col: r.Col + len(r.Match)}
+			a.editor.updateDisplay()
+		}
+	}
+
+	dlg := dialog.NewCustom("Find in Files", "Close", container.NewScroll(resultList), a.mainWin)
+	dlg.Resize(fyne.NewSize(600, 400))
+	dlg.Show()
 }
 
 func (a *App) showLintResults(errors []CompilerError) {

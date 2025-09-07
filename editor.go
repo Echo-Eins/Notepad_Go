@@ -26,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // EditorWidget - основной виджет редактора с полным функционалом
@@ -84,9 +85,10 @@ type EditorWidget struct {
 	lastModified  time.Time
 
 	// File watching
-	fileWatcher   *fsnotify.Watcher
-	watcherCancel context.CancelFunc
-	searchResults []TextRange
+	fileWatcher    *fsnotify.Watcher
+	watcherCancel  context.CancelFunc
+	searchResults  []TextRange
+	highlightTimer *time.Timer
 
 	// Callbacks
 	onContentChanged func(content string)
@@ -343,13 +345,14 @@ func (e *EditorWidget) setupComponents() {
 	e.lineNumbers.Resize(fyne.NewSize(60, 0))
 
 	// Создаем контейнер с прокруткой
+	editorLayer := container.NewMax(e.richContent, e.content)
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		split := container.NewHSplit(e.lineNumbers, e.content)
+		split := container.NewHSplit(e.lineNumbers, editorLayer)
 		split.SetOffset(0.05) // 5% для номеров строк
 		editorContent = split
 	} else {
-		editorContent = e.content
+		editorContent = editorLayer
 	}
 
 	e.scrollContainer = container.NewScroll(editorContent)
@@ -436,6 +439,105 @@ func (e *EditorWidget) updateCursorPosition() {
 	if e.onCursorChanged != nil {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
+	e.highlightWordAtCursor()
+}
+
+// getWordAtCursor возвращает слово под текущим курсором
+func (e *EditorWidget) getWordAtCursor() string {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow < 0 || e.cursorRow >= len(lines) {
+		return ""
+	}
+	runes := []rune(lines[e.cursorRow])
+	if len(runes) == 0 {
+		return ""
+	}
+	col := e.cursorCol
+	if col >= len(runes) {
+		col = len(runes) - 1
+	}
+	if col < 0 || !isWordRune(runes[col]) {
+		return ""
+	}
+	start, end := col, col
+	for start > 0 && isWordRune(runes[start-1]) {
+		start--
+	}
+	for end < len(runes) && isWordRune(runes[end]) {
+		end++
+	}
+	return string(runes[start:end])
+}
+
+// isWordRune проверяет, является ли символ частью слова
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// highlightWordAtCursor ищет и подсвечивает совпадения текущего слова
+func (e *EditorWidget) highlightWordAtCursor() {
+	if e.config == nil || !e.config.Editor.HighlightCurrentWord {
+		return
+	}
+
+	word := e.getWordAtCursor()
+	if word == "" {
+		e.searchResults = nil
+		e.applyTokensToRichText()
+		return
+	}
+
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\b`)
+	matches := re.FindAllStringIndex(e.textContent, -1)
+
+	results := make([]TextRange, 0, len(matches))
+	for _, m := range matches {
+		start := e.indexToPosition(m[0])
+		end := e.indexToPosition(m[1])
+		results = append(results, TextRange{Start: start, End: end, Text: word})
+	}
+	e.searchResults = results
+	e.applyTokensToRichText()
+
+	if e.highlightTimer != nil {
+		e.highlightTimer.Stop()
+	}
+	e.highlightTimer = time.AfterFunc(2*time.Second, func() {
+		e.searchResults = nil
+		e.applyTokensToRichText()
+	})
+}
+
+// indexToPosition преобразует индекс в позицию текста
+func (e *EditorWidget) indexToPosition(idx int) TextPosition {
+	if idx < 0 {
+		return TextPosition{}
+	}
+	lines := strings.Split(e.textContent, "\n")
+	remaining := idx
+	for row, line := range lines {
+		if remaining <= len(line) {
+			return TextPosition{Row: row, Col: remaining}
+		}
+		remaining -= len(line) + 1
+	}
+	if len(lines) == 0 {
+		return TextPosition{}
+	}
+	lastRow := len(lines) - 1
+	return TextPosition{Row: lastRow, Col: len(lines[lastRow])}
+}
+
+// isIndexInSearchResults проверяет, пересекается ли диапазон с найденными совпадениями
+func (e *EditorWidget) isIndexInSearchResults(start, end int) bool {
+	for _, r := range e.searchResults {
+		rs := e.positionToIndex(r.Start)
+		re := e.positionToIndex(r.End)
+		if start < re && end > rs {
+			return true
+		}
+	}
+	return false
 }
 
 // resetAutoSaveTimer сбрасывает таймер автосохранения
@@ -1012,6 +1114,7 @@ func (e *EditorWidget) applySyntaxHighlighting() {
 // applyTokensToRichText применяет токены к RichText виджету
 func (e *EditorWidget) applyTokensToRichText() {
 	segments := []widget.RichTextSegment{}
+	index := 0
 
 	for _, token := range e.syntaxTokens {
 		if token.Value == "" {
@@ -1019,12 +1122,19 @@ func (e *EditorWidget) applyTokensToRichText() {
 		}
 
 		style := widget.RichTextStyle{Inline: true, ColorName: e.getTokenColor(token.Type)}
+		tokenStart := index
+		tokenEnd := index + len(token.Value)
+		if e.config != nil && e.config.Editor.HighlightCurrentWord && e.isIndexInSearchResults(tokenStart, tokenEnd) {
+			style.ColorName = theme.ColorNameWarning
+			style.TextStyle = fyne.TextStyle{Bold: true}
+		}
 
 		segment := &widget.TextSegment{
 			Text:  token.Value,
 			Style: style,
 		}
 		segments = append(segments, segment)
+		index += len(token.Value)
 	}
 
 	e.richContent.Segments = segments
