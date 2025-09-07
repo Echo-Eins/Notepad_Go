@@ -30,6 +30,7 @@ type TerminalManager struct {
 	defaultShell    string
 	workingDir      string
 	environmentVars map[string]string
+	visible         bool
 }
 
 // TerminalInstance представляет экземпляр терминала
@@ -274,6 +275,7 @@ func (tm *TerminalManager) createTerminalWindow(terminal *TerminalInstance) {
 	})
 
 	window.Show()
+	tm.visible = true
 
 	// Фокус на поле ввода
 	window.Canvas().Focus(input)
@@ -489,6 +491,7 @@ func (tm *TerminalManager) closeTerminal(terminal *TerminalInstance) {
 			tm.activeTerminal = tm.terminals[len(tm.terminals)-1]
 		} else {
 			tm.activeTerminal = nil
+			tm.visible = false
 		}
 	}
 }
@@ -506,6 +509,7 @@ func (tm *TerminalManager) CloseAllTerminals() {
 		}
 		tm.closeTerminal(terminal)
 	}
+	tm.visible = false
 }
 
 // findGitBash ищет Git Bash на Windows
@@ -610,4 +614,31 @@ func (tm *TerminalManager) OpenBash(workingDir string) error {
 func (tm *TerminalManager) OpenCustomTerminal(workingDir string) error {
 	_, err := tm.OpenTerminal(TerminalCustom, workingDir)
 	return err
+}
+
+// IsVisible возвращает состояние видимости терминала
+func (tm *TerminalManager) IsVisible() bool {
+	tm.mutex.RLock()
+	defer tm.mutex.RUnlock()
+	return tm.visible
+}
+
+// Show отображает активный терминал, если он скрыт
+func (tm *TerminalManager) Show() {
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+	if tm.activeTerminal != nil && tm.activeTerminal.Window != nil {
+		tm.activeTerminal.Window.Show()
+		tm.visible = true
+	}
+}
+
+// Hide скрывает активный терминал
+func (tm *TerminalManager) Hide() {
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+	if tm.activeTerminal != nil && tm.activeTerminal.Window != nil {
+		tm.activeTerminal.Window.Hide()
+		tm.visible = false
+	}
 }

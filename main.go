@@ -46,6 +46,7 @@ type App struct {
 	findDialog         dialog.Dialog
 	searchResults      []TextRange
 	currentSearchIndex int
+	lastSearchText     string
 }
 
 // NewApp создает новое приложение
@@ -533,6 +534,7 @@ func (a *App) showFind() {
 	}
 
 	a.dialogManager.ShowFindDialog(func(text string, caseSensitive, wholeWord, regex bool) {
+		a.lastSearchText = text
 		// Выполняем поиск
 		cmd := &FindCommand{
 			searchTerm:    text,

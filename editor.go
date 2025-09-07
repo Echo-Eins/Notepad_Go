@@ -57,8 +57,8 @@ type EditorWidget struct {
 	selectionEnd   TextPosition
 
 	// История изменений
-	undoStack     []Command
-	redoStack     []Command
+	undoStack     []EditorCommand
+	redoStack     []EditorCommand
 	maxUndoLevels int
 
 	// Подсветка синтаксиса
@@ -109,6 +109,8 @@ type EditorWidget struct {
 	// Indent guides
 	indentGuides []IndentGuide
 	fileName     string
+
+	vimMode VimMode
 }
 
 // IsDirty возвращает true, если есть несохраненные изменения
@@ -503,6 +505,389 @@ func (e *EditorWidget) GetCursorPosition() TextPosition {
 		Row: e.cursorRow,
 		Col: e.cursorCol,
 	}
+}
+
+// Clear очищает содержимое редактора
+func (e *EditorWidget) Clear() {
+	e.textContent = ""
+	e.content.SetText("")
+	e.cursorRow = 0
+	e.cursorCol = 0
+	e.selectionStart = TextPosition{}
+	e.selectionEnd = TextPosition{}
+	e.isDirty = false
+	e.filePath = ""
+	e.fileName = ""
+	e.updateDisplay()
+}
+
+// SetFilePath устанавливает путь к текущему файлу
+func (e *EditorWidget) SetFilePath(path string) {
+	e.filePath = path
+	e.fileName = filepath.Base(path)
+}
+
+// ExecuteCommand выполняет команду с добавлением в историю
+func (e *EditorWidget) ExecuteCommand(cmd EditorCommand) error {
+	if err := cmd.Execute(e); err != nil {
+		return err
+	}
+	e.undoStack = append(e.undoStack, cmd)
+	e.redoStack = nil
+	if len(e.undoStack) > e.maxUndoLevels {
+		e.undoStack = e.undoStack[1:]
+	}
+	e.isDirty = true
+	return nil
+}
+
+// Undo отменяет последнюю команду
+func (e *EditorWidget) Undo() {
+	if len(e.undoStack) == 0 {
+		return
+	}
+	cmd := e.undoStack[len(e.undoStack)-1]
+	e.undoStack = e.undoStack[:len(e.undoStack)-1]
+	if err := cmd.Undo(e); err == nil {
+		e.redoStack = append(e.redoStack, cmd)
+	}
+}
+
+// Redo повторяет отмененную команду
+func (e *EditorWidget) Redo() {
+	if len(e.redoStack) == 0 {
+		return
+	}
+	cmd := e.redoStack[len(e.redoStack)-1]
+	e.redoStack = e.redoStack[:len(e.redoStack)-1]
+	if err := cmd.Execute(e); err == nil {
+		e.undoStack = append(e.undoStack, cmd)
+	}
+}
+
+// ReplaceSelection заменяет выделенный текст новым
+func (e *EditorWidget) ReplaceSelection(newText string) {
+	sel := e.content.SelectedText()
+	if sel == "" {
+		return
+	}
+	start := e.selectionStart
+	end := e.selectionEnd
+	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+		start, end = end, start
+	}
+	lines := strings.Split(e.textContent, "\n")
+	if start.Row == end.Row {
+		line := lines[start.Row]
+		lines[start.Row] = line[:start.Col] + newText + line[end.Col:]
+	} else {
+		first := lines[start.Row][:start.Col]
+		last := lines[end.Row][end.Col:]
+		lines = append(lines[:start.Row], append([]string{first + newText + last}, lines[end.Row+1:]...)...)
+	}
+	e.textContent = strings.Join(lines, "\n")
+	e.content.SetText(e.textContent)
+	e.cursorRow = start.Row
+	e.cursorCol = start.Col + len(newText)
+	e.isDirty = true
+	e.updateDisplay()
+}
+
+// ReplaceCurrentLine заменяет текущую строку
+func (e *EditorWidget) ReplaceCurrentLine(newLine string) {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
+		lines[e.cursorRow] = newLine
+		e.textContent = strings.Join(lines, "\n")
+		e.content.SetText(e.textContent)
+		e.isDirty = true
+		e.updateDisplay()
+	}
+}
+
+// SelectWordAtCursor выделяет слово под курсором
+func (e *EditorWidget) SelectWordAtCursor() {
+	word := e.GetWordAtCursor()
+	if word == "" {
+		return
+	}
+	line := e.GetCurrentLine()
+	idx := strings.Index(line, word)
+	if idx >= 0 {
+		e.selectionStart = TextPosition{Row: e.cursorRow, Col: idx}
+		e.selectionEnd = TextPosition{Row: e.cursorRow, Col: idx + len(word)}
+		e.cursorCol = idx + len(word)
+		e.content.CursorColumn = e.cursorCol
+	}
+}
+
+// ExpandSelection расширяет выделение до слова
+func (e *EditorWidget) ExpandSelection() {
+	e.SelectWordAtCursor()
+}
+
+// ShrinkSelection снимает выделение
+func (e *EditorWidget) ShrinkSelection() {
+	e.selectionStart = TextPosition{}
+	e.selectionEnd = TextPosition{}
+	e.content.SetText(e.textContent)
+}
+
+// AddCursorAbove добавляет курсор выше текущего
+func (e *EditorWidget) AddCursorAbove() {
+	if e.cursorRow > 0 {
+		pos := TextPosition{Row: e.cursorRow - 1, Col: e.cursorCol}
+		e.cursors = append(e.cursors, pos)
+	}
+}
+
+// AddCursorBelow добавляет курсор ниже текущего
+func (e *EditorWidget) AddCursorBelow() {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow < len(lines)-1 {
+		pos := TextPosition{Row: e.cursorRow + 1, Col: e.cursorCol}
+		e.cursors = append(e.cursors, pos)
+	}
+}
+
+// DeleteCurrentLine удаляет текущую строку
+func (e *EditorWidget) DeleteCurrentLine() {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
+		lines = append(lines[:e.cursorRow], lines[e.cursorRow+1:]...)
+		if e.cursorRow >= len(lines) {
+			e.cursorRow = len(lines) - 1
+		}
+		e.cursorCol = 0
+		e.textContent = strings.Join(lines, "\n")
+		e.content.SetText(e.textContent)
+		e.isDirty = true
+		e.updateDisplay()
+	}
+}
+
+// InsertText вставляет текст в текущую позицию курсора
+func (e *EditorWidget) InsertText(text string) {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
+		line := lines[e.cursorRow]
+		if e.cursorCol > len(line) {
+			e.cursorCol = len(line)
+		}
+		newLine := line[:e.cursorCol] + text + line[e.cursorCol:]
+		lines[e.cursorRow] = newLine
+		e.cursorCol += len(text)
+		e.textContent = strings.Join(lines, "\n")
+		e.content.SetText(e.textContent)
+		e.isDirty = true
+		e.updateDisplay()
+	}
+}
+
+// KillToEndOfLine удаляет текст от курсора до конца строки
+func (e *EditorWidget) KillToEndOfLine() string {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
+		line := lines[e.cursorRow]
+		if e.cursorCol >= len(line) {
+			return ""
+		}
+		killed := line[e.cursorCol:]
+		lines[e.cursorRow] = line[:e.cursorCol]
+		e.textContent = strings.Join(lines, "\n")
+		e.content.SetText(e.textContent)
+		e.isDirty = true
+		e.updateDisplay()
+		return killed
+	}
+	return ""
+}
+
+// KillWord удаляет слово справа от курсора
+func (e *EditorWidget) KillWord() string {
+	lines := strings.Split(e.textContent, "\n")
+	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
+		line := lines[e.cursorRow]
+		if e.cursorCol >= len(line) {
+			return ""
+		}
+		rest := line[e.cursorCol:]
+		re := regexp.MustCompile(`^\w+`)
+		loc := re.FindStringIndex(rest)
+		if loc == nil {
+			return ""
+		}
+		killed := rest[:loc[1]]
+		lines[e.cursorRow] = line[:e.cursorCol] + rest[loc[1]:]
+		e.textContent = strings.Join(lines, "\n")
+		e.content.SetText(e.textContent)
+		e.isDirty = true
+		e.updateDisplay()
+		return killed
+	}
+	return ""
+}
+
+// FindNext ищет следующее вхождение строки
+func (e *EditorWidget) FindNext(term string) bool {
+	if term == "" {
+		return false
+	}
+	content := e.textContent
+	startIdx := e.cursorIndex()
+	idx := strings.Index(content[startIdx:], term)
+	if idx == -1 {
+		idx = strings.Index(content, term)
+		if idx == -1 {
+			return false
+		}
+	} else {
+		idx += startIdx
+	}
+	e.moveCursorToIndex(idx)
+	return true
+}
+
+// FindPrevious ищет предыдущее вхождение строки
+func (e *EditorWidget) FindPrevious(term string) bool {
+	if term == "" {
+		return false
+	}
+	content := e.textContent
+	startIdx := e.cursorIndex()
+	if startIdx > 0 {
+		content = content[:startIdx]
+	}
+	idx := strings.LastIndex(content, term)
+	if idx == -1 {
+		return false
+	}
+	e.moveCursorToIndex(idx)
+	return true
+}
+
+// cursorIndex возвращает индекс курсора в тексте
+func (e *EditorWidget) cursorIndex() int {
+	lines := strings.Split(e.textContent, "\n")
+	idx := 0
+	for i := 0; i < e.cursorRow && i < len(lines); i++ {
+		idx += len(lines[i]) + 1
+	}
+	idx += e.cursorCol
+	return idx
+}
+
+// moveCursorToIndex перемещает курсор к указанному индексу
+func (e *EditorWidget) moveCursorToIndex(idx int) {
+	if idx < 0 {
+		idx = 0
+	}
+	before := e.textContent[:idx]
+	e.cursorRow = strings.Count(before, "\n")
+	lastNL := strings.LastIndex(before, "\n")
+	if lastNL >= 0 {
+		e.cursorCol = idx - lastNL - 1
+	} else {
+		e.cursorCol = idx
+	}
+	e.content.CursorRow = e.cursorRow
+	e.content.CursorColumn = e.cursorCol
+}
+
+// GetWordAtCursor возвращает слово под курсором
+func (e *EditorWidget) GetWordAtCursor() string {
+	line := e.GetCurrentLine()
+	if line == "" {
+		return ""
+	}
+	if e.cursorCol > len(line) {
+		return ""
+	}
+	re := regexp.MustCompile(`[_A-Za-z0-9]+`)
+	indices := re.FindAllStringIndex(line, -1)
+	for _, loc := range indices {
+		if e.cursorCol >= loc[0] && e.cursorCol <= loc[1] {
+			e.selectionStart = TextPosition{Row: e.cursorRow, Col: loc[0]}
+			e.selectionEnd = TextPosition{Row: e.cursorRow, Col: loc[1]}
+			return line[loc[0]:loc[1]]
+		}
+	}
+	return ""
+}
+
+// DefinitionLocation представляет местоположение определения
+type DefinitionLocation struct {
+	Line   int
+	Column int
+}
+
+// FindDefinition ищет определение слова
+func (e *EditorWidget) FindDefinition(word string) *DefinitionLocation {
+	if word == "" {
+		return nil
+	}
+	lines := strings.Split(e.textContent, "\n")
+	pattern := regexp.MustCompile("\\b" + regexp.QuoteMeta(word) + "\\b")
+	for i, line := range lines {
+		if loc := pattern.FindStringIndex(line); loc != nil {
+			return &DefinitionLocation{Line: i, Column: loc[0]}
+		}
+	}
+	return nil
+}
+
+// GoToPosition перемещает курсор в указанную позицию
+func (e *EditorWidget) GoToPosition(line, column int) {
+	lines := strings.Split(e.textContent, "\n")
+	if line < 0 || line >= len(lines) {
+		return
+	}
+	if column < 0 {
+		column = 0
+	}
+	if column > len(lines[line]) {
+		column = len(lines[line])
+	}
+	e.cursorRow = line
+	e.cursorCol = column
+	e.content.CursorRow = line
+	e.content.CursorColumn = column
+	e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(line)*theme.TextSize()))
+}
+
+// FoldCurrentBlock добавляет текущую строку в свернутые диапазоны
+func (e *EditorWidget) FoldCurrentBlock() {
+	if e.foldedRanges == nil {
+		e.foldedRanges = make(map[int]FoldRange)
+	}
+	e.foldedRanges[e.cursorRow] = FoldRange{Start: e.cursorRow, End: e.cursorRow}
+	e.updateDisplay()
+}
+
+// UnfoldCurrentBlock удаляет текущую строку из свернутых
+func (e *EditorWidget) UnfoldCurrentBlock() {
+	if e.foldedRanges != nil {
+		delete(e.foldedRanges, e.cursorRow)
+		e.updateDisplay()
+	}
+}
+
+// FoldAll сворачивает весь текст
+func (e *EditorWidget) FoldAll() {
+	total := e.getLineCount()
+	e.foldedRanges = map[int]FoldRange{0: {Start: 0, End: total - 1}}
+	e.updateDisplay()
+}
+
+// UnfoldAll раскрывает весь текст
+func (e *EditorWidget) UnfoldAll() {
+	e.foldedRanges = make(map[int]FoldRange)
+	e.updateDisplay()
+}
+
+// SetVimMode устанавливает текущий Vim режим
+func (e *EditorWidget) SetVimMode(mode VimMode) {
+	e.vimMode = mode
 }
 
 // applySyntaxHighlighting применяет подсветку синтаксиса

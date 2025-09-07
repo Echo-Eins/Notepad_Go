@@ -668,17 +668,14 @@ func (hm *HotkeyManager) setupEventHandlers() {
 	hm.window.Canvas().SetOnTypedRune(func(r rune) {
 		hm.handleRuneEvent(r)
 	})
-
-	// Обработчик изменения фокуса
-	hm.window.Canvas().SetOnFocusGained(func(obj fyne.Focusable) {
-		hm.handleFocusChanged(obj)
-	})
 }
 
 // handleKeyEvent обрабатывает нажатие клавиши
 func (hm *HotkeyManager) handleKeyEvent(event *fyne.KeyEvent) {
 	hm.mutex.Lock()
 	defer hm.mutex.Unlock()
+
+	hm.handleFocusChanged(hm.window.Canvas().Focused())
 
 	// Логируем нажатие
 	if hm.keyLogger.enabled {
@@ -1044,6 +1041,11 @@ func (hm *HotkeyManager) handleNormalKeyEvent(event *fyne.KeyEvent) {
 
 // handleRuneEvent обрабатывает ввод символа
 func (hm *HotkeyManager) handleRuneEvent(r rune) {
+	hm.mutex.Lock()
+	defer hm.mutex.Unlock()
+
+	hm.handleFocusChanged(hm.window.Canvas().Focused())
+
 	// В Vim режиме обрабатываем символы для команд
 	if hm.currentMode == ModeVim && hm.vimState.Mode == VimNormal {
 		// Числовые префиксы
@@ -1070,6 +1072,25 @@ func (hm *HotkeyManager) handleRuneEvent(r rune) {
 
 // executeAction выполняет действие по имени
 func (hm *HotkeyManager) executeAction(actionName string) bool {
+	if action, exists := hm.actions[actionName]; exists {
+		return action(hm.currentContext)
+	}
+	return false
+}
+
+// executeActionWithParam выполняет действие с параметром
+func (hm *HotkeyManager) executeActionWithParam(actionName string, param interface{}) bool {
+	switch actionName {
+	case "open_file":
+		if path, ok := param.(string); ok && hm.app != nil {
+			hm.app.loadFile(path)
+			hm.app.currentFile = path
+			hm.app.updateTitle()
+			hm.app.addToRecentFiles(path)
+			return true
+		}
+	}
+
 	if action, exists := hm.actions[actionName]; exists {
 		return action(hm.currentContext)
 	}
@@ -1188,8 +1209,8 @@ func (hm *HotkeyManager) canExecuteShortcut(shortcut *RegisteredShortcut) bool {
 }
 
 // createShortcutHandler создает обработчик для Fyne shortcut
-func (hm *HotkeyManager) createShortcutHandler(shortcut *RegisteredShortcut) func() {
-	return func() {
+func (hm *HotkeyManager) createShortcutHandler(shortcut *RegisteredShortcut) func(fyne.Shortcut) {
+	return func(fyne.Shortcut) {
 		hm.executeShortcut(shortcut)
 	}
 }
@@ -1453,7 +1474,8 @@ func (hm *HotkeyManager) actionOpenFile(context HotkeyContext) bool {
 		}
 
 		// Загружаем в редактор
-		hm.app.editor.LoadFile(reader.URI().Path(), string(data))
+		hm.app.editor.SetContent(string(data))
+		hm.app.editor.SetFilePath(reader.URI().Path())
 		hm.app.currentFile = reader.URI().Path()
 		hm.app.updateTitle()
 		hm.app.addToRecentFiles(reader.URI().Path())
@@ -1565,8 +1587,7 @@ func (hm *HotkeyManager) actionCut(context HotkeyContext) bool {
 	hm.window.Clipboard().SetContent(selectedText)
 
 	// Удаляем выделенный текст
-	cmd := &DeleteTextCommand{text: selectedText}
-	hm.app.editor.ExecuteCommand(cmd)
+	hm.app.editor.ReplaceSelection("")
 
 	return true
 }
