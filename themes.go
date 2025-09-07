@@ -7,6 +7,45 @@ import (
 	"fyne.io/fyne/v2/theme"
 )
 
+// AppTheme оборачивает базовую тему и позволяет изменять размер шрифта
+type AppTheme struct {
+	base     fyne.Theme
+	fontSize float32
+}
+
+// NewAppTheme создает тему с заданным базовым стилем и размером шрифта
+func NewAppTheme(base fyne.Theme, fontSize float32) *AppTheme {
+	return &AppTheme{base: base, fontSize: fontSize}
+}
+
+// SetFontSize обновляет размер шрифта темы
+func (t *AppTheme) SetFontSize(size float32) {
+	t.fontSize = size
+}
+
+// Color делегирует получение цвета базовой теме
+func (t *AppTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return t.base.Color(name, variant)
+}
+
+// Font делегирует получение шрифта базовой теме
+func (t *AppTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return t.base.Font(style)
+}
+
+// Icon делегирует получение иконок базовой теме
+func (t *AppTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return t.base.Icon(name)
+}
+
+// Size возвращает размер текста с учетом настроек, остальные размеры делегируются
+func (t *AppTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText && t.fontSize > 0 {
+		return t.fontSize
+	}
+	return t.base.Size(name)
+}
+
 // DarkTheme реализует темную тему в стиле Windows 11
 type DarkTheme struct{}
 

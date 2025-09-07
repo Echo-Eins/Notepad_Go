@@ -42,6 +42,8 @@ type App struct {
 	searchResults      []TextRange
 	currentSearchIndex int
 	lastSearchText     string
+	statusBar          *widget.Label
+	appTheme           *AppTheme
 }
 
 // NewApp создает новое приложение
@@ -57,14 +59,18 @@ func NewApp() *App {
 		config = DefaultConfig()
 	}
 
-	// Устанавливаем тему
-	if config.App.Theme == "dark" {
-		myApp.Settings().SetTheme(&DarkTheme{})
-	} else if config.App.Theme == "light" {
-		myApp.Settings().SetTheme(&LightTheme{})
-	} else {
-		myApp.Settings().SetTheme(&DarkTheme{})
+	// Устанавливаем тему с учетом размера шрифта
+	var baseTheme fyne.Theme
+	switch config.App.Theme {
+	case "dark":
+		baseTheme = &DarkTheme{}
+	case "light":
+		baseTheme = &LightTheme{}
+	default:
+		baseTheme = &DarkTheme{}
 	}
+	appTheme := NewAppTheme(baseTheme, config.Editor.FontSize)
+	myApp.Settings().SetTheme(appTheme)
 
 	mainWin := myApp.NewWindow("Programmer's Notepad")
 
@@ -81,6 +87,7 @@ func NewApp() *App {
 		configManager:  configMgr,
 		recentFiles:    config.App.LastOpenedFiles,
 		commandHistory: NewCommandHistory(100),
+		appTheme:       appTheme,
 	}
 
 	return appInstance
@@ -192,7 +199,7 @@ func (a *App) createMainMenu() {
 // createMainLayout создает основной layout
 func (a *App) createMainLayout() {
 	// Создаем статус бар
-	statusBar := a.createStatusBar()
+	statusBarContainer := a.createStatusBar()
 
 	// Основной контент с редактором и миниатюрой
 	var editorContent fyne.CanvasObject
@@ -204,9 +211,9 @@ func (a *App) createMainLayout() {
 
 	// Добавляем боковую панель если видима
 	if a.config.Sidebar.IsVisible {
-		a.mainContent = container.NewBorder(nil, statusBar, a.sidebar, nil, editorContent)
+		a.mainContent = container.NewBorder(nil, statusBarContainer, a.sidebar, nil, editorContent)
 	} else {
-		a.mainContent = container.NewBorder(nil, statusBar, nil, nil, editorContent)
+		a.mainContent = container.NewBorder(nil, statusBarContainer, nil, nil, editorContent)
 	}
 
 	a.mainWin.SetContent(a.mainContent)
@@ -220,6 +227,7 @@ func (a *App) createStatusBar() fyne.CanvasObject {
 
 	// Позиция курсора
 	positionLabel := widget.NewLabel("Ln 1, Col 1")
+	a.statusBar = positionLabel
 
 	// Язык/режим
 	modeLabel := widget.NewLabel("Plain Text")
@@ -232,7 +240,7 @@ func (a *App) createStatusBar() fyne.CanvasObject {
 	sep2 := widget.NewSeparator()
 	sep3 := widget.NewSeparator()
 
-	statusBar := container.NewHBox(
+	statusContainer := container.NewHBox(
 		fileLabel,
 		sep1,
 		positionLabel,
@@ -242,7 +250,7 @@ func (a *App) createStatusBar() fyne.CanvasObject {
 		encodingLabel,
 	)
 
-	return statusBar
+	return statusContainer
 }
 
 // setupCallbacks настраивает обратные вызовы между компонентами
@@ -1446,12 +1454,13 @@ func (a *App) runCustomTool(tool CustomTool) {
 }
 
 func (a *App) applyFontSize() {
-	if a.editor == nil || a.editor.content == nil {
+	if a.editor == nil || a.editor.content == nil || a.appTheme == nil {
 		return
 	}
 
-	// Обновляем размер шрифта в редакторе
-	a.editor.content.TextSize = a.config.Editor.FontSize
+	// Обновляем размер шрифта через тему
+	a.appTheme.SetFontSize(a.config.Editor.FontSize)
+	a.fyneApp.Settings().SetTheme(a.appTheme)
 	a.editor.content.Refresh()
 
 	// Обновляем номера строк
