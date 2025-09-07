@@ -54,7 +54,11 @@ func (a *App) showDiffWindow(file1, file2 string) {
 			if i == len(lines)-1 && line == "" {
 				continue
 			}
-			grid.SetRow(row, []rune(line))
+			cells := make([]widget.TextGridCell, len([]rune(line)))
+			for j, r := range line {
+				cells[j] = widget.TextGridCell{Rune: r}
+			}
+			grid.SetRow(row, widget.TextGridRow{Cells: cells})
 			style := &widget.CustomTextGridStyle{}
 			switch d.Type {
 			case diffmatchpatch.DiffInsert:
