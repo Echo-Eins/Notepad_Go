@@ -128,6 +128,7 @@ func (dm *DialogManager) ShowFindDialog(onFind func(string, bool, bool, bool)) {
 	}, dm.mainWindow)
 
 	findDialog.Show()
+	AnimateShow(content)
 
 	// Фокус на поле ввода
 	dm.mainWindow.Canvas().Focus(searchEntry)
@@ -185,6 +186,7 @@ func (dm *DialogManager) ShowReplaceDialog(onReplace func(string, string, bool, 
 	}, dm.mainWindow)
 
 	replaceDialog.Show()
+	AnimateShow(content)
 	dm.mainWindow.Canvas().Focus(findEntry)
 }
 
@@ -230,6 +232,7 @@ func (dm *DialogManager) ShowGoToLineDialog(maxLine int, onGoTo func(int)) {
 	}, dm.mainWindow)
 
 	goToDialog.Show()
+	AnimateShow(content)
 	dm.mainWindow.Canvas().Focus(entry)
 }
 
@@ -287,6 +290,7 @@ func (dm *DialogManager) ShowCommandPaletteDialog(commands []Command, onExecute 
 	paletteDialog := dialog.NewCustom("Command Palette", "Close", content, dm.mainWindow)
 	paletteDialog.Resize(fyne.NewSize(600, 400))
 	paletteDialog.Show()
+	AnimateShow(content)
 
 	dm.mainWindow.Canvas().Focus(searchEntry)
 }
@@ -310,6 +314,7 @@ func (dm *DialogManager) ShowPreferencesDialog(config *Config, onSave func(*Conf
 
 	prefsDialog.Resize(fyne.NewSize(700, 500))
 	prefsDialog.Show()
+	AnimateShow(tabs)
 }
 
 // createGeneralSettings создает вкладку общих настроек

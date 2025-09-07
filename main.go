@@ -1,17 +1,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 type Command struct {
@@ -59,17 +59,16 @@ func NewApp() *App {
 		config = DefaultConfig()
 	}
 
-	// Устанавливаем тему с учетом размера шрифта
+	// Устанавливаем тему с учетом размера шрифта и радиуса скругления
 	var baseTheme fyne.Theme
 	switch config.App.Theme {
-	case "dark":
-		baseTheme = &DarkTheme{}
+
 	case "light":
-		baseTheme = &LightTheme{}
+		baseTheme = NewLightTheme(config.App.CornerRadius)
 	default:
-		baseTheme = &DarkTheme{}
+		baseTheme = NewDarkTheme(config.App.CornerRadius)
 	}
-	appTheme := NewAppTheme(baseTheme, config.Editor.FontSize)
+	appTheme := NewAppTheme(baseTheme, config.Editor.FontSize, config.App.CornerRadius)
 	myApp.Settings().SetTheme(appTheme)
 
 	mainWin := myApp.NewWindow("Programmer's Notepad")
@@ -386,6 +385,9 @@ func (a *App) loadFile(path string) {
 	if a.editor != nil {
 		err := a.editor.LoadFile(path)
 		if err != nil {
+			if errors.Is(err, ErrFileTooLarge) {
+				return
+			}
 			dialog.ShowError(err, a.mainWin)
 		} else {
 			a.currentFile = path

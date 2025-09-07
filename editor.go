@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -119,8 +120,20 @@ func (e *EditorWidget) IsDirty() bool {
 	return e.isDirty
 }
 
+// ErrFileTooLarge is returned when a file exceeds the configured maximum size
+var ErrFileTooLarge = errors.New("file exceeds maximum allowed size")
+
 // LoadFile загружает файл в редактор
 func (e *EditorWidget) LoadFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	if e.config != nil && e.config.Editor.MaxFileSize > 0 && info.Size() > e.config.Editor.MaxFileSize {
+		dialog.ShowInformation("File Too Large", fmt.Sprintf("File size (%d bytes) exceeds limit (%d bytes)", info.Size(), e.config.Editor.MaxFileSize), fyne.CurrentApp().Driver().AllWindows()[0])
+		return ErrFileTooLarge
+	}
 	content, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
@@ -130,9 +143,7 @@ func (e *EditorWidget) LoadFile(path string) error {
 	e.fileName = filepath.Base(path)
 	e.textContent = string(content)
 	e.isDirty = false
-	if info, err := os.Stat(path); err == nil {
-		e.lastModified = info.ModTime()
-	}
+	e.lastModified = info.ModTime()
 	e.detectLanguage()
 	e.updateDisplay()
 	e.startFileWatcher()
@@ -237,6 +248,7 @@ const (
 	ClickableCommand
 	ClickableColor
 	ClickableClass
+	ClickableTODO
 )
 
 // FoldRange представляет свернутый блок кода
@@ -378,6 +390,38 @@ func (e *EditorWidget) bindEvents() {
 
 	// Добавляем обработку кликов через расширение базового виджета
 	e.ExtendBaseWidget(e)
+}
+
+// FocusGained is called when the editor receives focus.
+// Forward the event to the underlying Entry widget so that
+// text input continues to work as expected.
+func (e *EditorWidget) FocusGained() {
+	if e.content != nil {
+		e.content.FocusGained()
+	}
+}
+
+// FocusLost is called when the editor loses focus.
+// We forward this event to the Entry widget to ensure
+// it updates its state appropriately.
+func (e *EditorWidget) FocusLost() {
+	if e.content != nil {
+		e.content.FocusLost()
+	}
+}
+
+// TypedRune forwards rune input to the underlying Entry widget.
+func (e *EditorWidget) TypedRune(r rune) {
+	if e.content != nil {
+		e.content.TypedRune(r)
+	}
+}
+
+// TypedKey forwards key events to the underlying Entry widget.
+func (e *EditorWidget) TypedKey(event *fyne.KeyEvent) {
+	if e.content != nil {
+		e.content.TypedKey(event)
+	}
 }
 
 // TappedSecondary обрабатывает правый клик мыши
@@ -1213,6 +1257,9 @@ func (e *EditorWidget) parseClickableElements() {
 
 	// Парсим функции и переменные
 	e.parseFunctionsAndVariables()
+
+	// Парсим TODO комментарии
+	e.parseTODOs()
 }
 
 // parseImports парсит импорты в коде
@@ -1422,6 +1469,74 @@ func (e *EditorWidget) parseFunctionsAndVariables() {
 			}
 		}
 	}
+}
+
+// parseTODOs парсит TODO комментарии в коде
+func (e *EditorWidget) parseTODOs() {
+	analyzer := NewCodeAnalyzer()
+	todos := analyzer.FindTODOs(e.textContent)
+
+	for _, todo := range todos {
+		row := todo.Line - 1
+		startCol := todo.Column - 1
+		endCol := startCol + len(todo.Text)
+
+		clickable := ClickableRange{
+			Range: TextRange{
+				Start: TextPosition{Row: row, Col: startCol},
+				End:   TextPosition{Row: row, Col: endCol},
+				Text:  todo.Text,
+			},
+			Type:    ClickableTODO,
+			Target:  todo.Message,
+			Tooltip: fmt.Sprintf("%s: %s", todo.Type, todo.Message),
+			OnClick: func() {
+				e.showTODOList()
+			},
+		}
+		e.clickableRanges = append(e.clickableRanges, clickable)
+	}
+}
+
+// showTODOList отображает список TODO комментариев и позволяет перейти к выбранному
+func (e *EditorWidget) showTODOList() {
+	analyzer := NewCodeAnalyzer()
+	todos := analyzer.FindTODOs(e.textContent)
+
+	windows := fyne.CurrentApp().Driver().AllWindows()
+	if len(windows) == 0 {
+		return
+	}
+	win := windows[0]
+
+	if len(todos) == 0 {
+		dialog.ShowInformation("TODOs", "No TODOs found", win)
+		return
+	}
+
+	todoNames := make([]string, len(todos))
+	for i, t := range todos {
+		todoNames[i] = fmt.Sprintf("%s: %s (line %d)", t.Type, t.Message, t.Line)
+	}
+
+	todoList := widget.NewList(
+		func() int { return len(todoNames) },
+		func() fyne.CanvasObject { return widget.NewLabel("TODO") },
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			o.(*widget.Label).SetText(todoNames[i])
+		},
+	)
+
+	todoList.OnSelected = func(id widget.ListItemID) {
+		if id < len(todos) {
+			cmd := &GoToLineCommand{lineNumber: todos[id].Line}
+			_ = cmd.Execute(e)
+		}
+	}
+
+	todoDialog := dialog.NewCustom("TODOs", "Close", container.NewScroll(todoList), win)
+	todoDialog.Resize(fyne.NewSize(400, 300))
+	todoDialog.Show()
 }
 
 // getImportURL возвращает URL документации для импорта

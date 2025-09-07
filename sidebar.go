@@ -206,23 +206,23 @@ func (s *SidebarWidget) setupComponents() {
 	}
 
 	// Кнопки управления
-	refreshBtn := widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
+	refreshBtn := NewAnimatedButtonWithIcon("", theme.ViewRefreshIcon(), func() {
 		s.RefreshPath(s.currentPath)
 	})
 	refreshBtn.SetText("Refresh")
 
-	upBtn := widget.NewButtonWithIcon("", theme.NavigateBackIcon(), func() {
+	upBtn := NewAnimatedButtonWithIcon("", theme.NavigateBackIcon(), func() {
 		s.NavigateUp()
 	})
 	upBtn.SetText("Up")
 
-	homeBtn := widget.NewButtonWithIcon("", theme.HomeIcon(), func() {
+	homeBtn := NewAnimatedButtonWithIcon("", theme.HomeIcon(), func() {
 		s.NavigateToHome()
 	})
 	homeBtn.SetText("Home")
 
 	// Настройки отображения
-	settingsBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
+	settingsBtn := NewAnimatedButtonWithIcon("", theme.SettingsIcon(), func() {
 		s.showSettingsDialog()
 	})
 
@@ -270,6 +270,35 @@ func NewSidebar(config *Config) *SidebarWidget {
 }
 
 // Tree interface methods
+
+// FocusGained is called when the sidebar receives focus. We forward the
+// event to the file tree so keyboard navigation continues to work.
+func (s *SidebarWidget) FocusGained() {
+	if s.fileTree != nil {
+		s.fileTree.FocusGained()
+	}
+}
+
+// FocusLost is called when the sidebar loses focus. Forward to child widgets.
+func (s *SidebarWidget) FocusLost() {
+	if s.fileTree != nil {
+		s.fileTree.FocusLost()
+	}
+}
+
+// TypedRune forwards rune input to the search entry for quick filtering.
+func (s *SidebarWidget) TypedRune(r rune) {
+	if s.searchEntry != nil {
+		s.searchEntry.TypedRune(r)
+	}
+}
+
+// TypedKey forwards key events to the file tree for navigation.
+func (s *SidebarWidget) TypedKey(event *fyne.KeyEvent) {
+	if s.fileTree != nil {
+		s.fileTree.TypedKey(event)
+	}
+}
 
 // treeChildUIDs возвращает дочерние узлы
 func (s *SidebarWidget) treeChildUIDs(uid string) []string {
@@ -1212,9 +1241,9 @@ func (s *SidebarWidget) SetVisible(visible bool) {
 	s.isVisible = visible
 	if s.mainContainer != nil {
 		if visible {
-			s.mainContainer.Show()
+			AnimateShow(s.mainContainer)
 		} else {
-			s.mainContainer.Hide()
+			AnimateHide(s.mainContainer)
 		}
 	}
 }

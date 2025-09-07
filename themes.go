@@ -7,20 +7,26 @@ import (
 	"fyne.io/fyne/v2/theme"
 )
 
-// AppTheme оборачивает базовую тему и позволяет изменять размер шрифта
+// AppTheme оборачивает базовую тему и позволяет изменять параметры отображения
 type AppTheme struct {
-	base     fyne.Theme
-	fontSize float32
+	base         fyne.Theme
+	fontSize     float32
+	cornerRadius float32
 }
 
-// NewAppTheme создает тему с заданным базовым стилем и размером шрифта
-func NewAppTheme(base fyne.Theme, fontSize float32) *AppTheme {
-	return &AppTheme{base: base, fontSize: fontSize}
+// NewAppTheme создает тему с заданным базовым стилем, размером шрифта и радиусом углов
+func NewAppTheme(base fyne.Theme, fontSize, cornerRadius float32) *AppTheme {
+	return &AppTheme{base: base, fontSize: fontSize, cornerRadius: cornerRadius}
 }
 
 // SetFontSize обновляет размер шрифта темы
 func (t *AppTheme) SetFontSize(size float32) {
 	t.fontSize = size
+}
+
+// SetCornerRadius обновляет радиус скругления
+func (t *AppTheme) SetCornerRadius(radius float32) {
+	t.cornerRadius = radius
 }
 
 // Color делегирует получение цвета базовой теме
@@ -38,16 +44,33 @@ func (t *AppTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 	return t.base.Icon(name)
 }
 
-// Size возвращает размер текста с учетом настроек, остальные размеры делегируются
+// Size возвращает размеры с учетом настроек темы
 func (t *AppTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameText && t.fontSize > 0 {
-		return t.fontSize
+	switch name {
+	case theme.SizeNameText:
+		if t.fontSize > 0 {
+			return t.fontSize
+		}
+	case theme.SizeNameInputRadius,
+		theme.SizeNameSelectionRadius,
+		theme.SizeNameScrollBarRadius,
+		theme.SizeNameWindowButtonRadius:
+		if t.cornerRadius > 0 {
+			return t.cornerRadius
+		}
 	}
 	return t.base.Size(name)
 }
 
 // DarkTheme реализует темную тему в стиле Windows 11
-type DarkTheme struct{}
+type DarkTheme struct {
+	cornerRadius float32
+}
+
+// NewDarkTheme создает темную тему с указанным радиусом скругления
+func NewDarkTheme(cornerRadius float32) *DarkTheme {
+	return &DarkTheme{cornerRadius: cornerRadius}
+}
 
 // Windows 11 цветовая палитра (темная)
 var (
@@ -203,13 +226,28 @@ func (t *DarkTheme) Size(name fyne.ThemeSizeName) float32 {
 		return 1 // Тонкие разделители
 	case theme.SizeNameInputBorder:
 		return 1 // Тонкие границы полей ввода
+	case theme.SizeNameInputRadius,
+		theme.SizeNameSelectionRadius,
+		theme.SizeNameScrollBarRadius,
+		theme.SizeNameWindowButtonRadius:
+		if t.cornerRadius > 0 {
+			return t.cornerRadius
+		}
+		return theme.DefaultTheme().Size(name)
 	default:
 		return theme.DefaultTheme().Size(name)
 	}
 }
 
 // LightTheme реализует светлую тему в стиле Windows 11
-type LightTheme struct{}
+type LightTheme struct {
+	cornerRadius float32
+}
+
+// NewLightTheme создает светлую тему с указанным радиусом скругления
+func NewLightTheme(cornerRadius float32) *LightTheme {
+	return &LightTheme{cornerRadius: cornerRadius}
+}
 
 // Светлая цветовая палитра Windows 11
 var (
@@ -276,6 +314,14 @@ func (t *LightTheme) Size(name fyne.ThemeSizeName) float32 {
 		return 1
 	case theme.SizeNameInputBorder:
 		return 1
+	case theme.SizeNameInputRadius,
+		theme.SizeNameSelectionRadius,
+		theme.SizeNameScrollBarRadius,
+		theme.SizeNameWindowButtonRadius:
+		if t.cornerRadius > 0 {
+			return t.cornerRadius
+		}
+		return theme.DefaultTheme().Size(name)
 	default:
 		return theme.DefaultTheme().Size(name)
 	}

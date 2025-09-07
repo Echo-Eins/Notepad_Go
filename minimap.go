@@ -210,6 +210,22 @@ func NewMinimap(editor *EditorWidget) *MinimapWidget {
 	return minimap
 }
 
+// FocusGained implements fyne.Focusable. The minimap itself does not accept
+// text input, so these handlers are essentially no-ops but are required to
+// satisfy the interface and integrate with the hotkey system.
+func (m *MinimapWidget) FocusGained() {}
+
+// FocusLost implements fyne.Focusable for MinimapWidget.
+func (m *MinimapWidget) FocusLost() {}
+
+// TypedRune is part of the fyne.Focusable interface. MinimapWidget ignores
+// rune input but implements the method to satisfy the interface.
+func (m *MinimapWidget) TypedRune(r rune) {}
+
+// TypedKey is part of fyne.Focusable. MinimapWidget does not react to key
+// events directly, so this method is a no-op.
+func (m *MinimapWidget) TypedKey(event *fyne.KeyEvent) {}
+
 // SetupColors настраивает цветовую схему
 func (m *MinimapWidget) SetupColors() {
 	// 1) Если редактор реализует MinimapColorProvider — берём палитру оттуда.
@@ -813,9 +829,9 @@ func (m *MinimapWidget) SetVisible(visible bool) {
 	m.isVisible = visible
 	if m.mainContainer != nil {
 		if visible {
-			m.mainContainer.Show()
+			AnimateShow(m.mainContainer)
 		} else {
-			m.mainContainer.Hide()
+			AnimateHide(m.mainContainer)
 		}
 	}
 }

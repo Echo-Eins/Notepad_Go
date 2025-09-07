@@ -62,6 +62,7 @@ type AppConfig struct {
 	RecentProjects  []string `json:"recent_projects"`
 	StartupBehavior string   `json:"startup_behavior"` // "blank", "last_session", "welcome"
 	CheckUpdates    bool     `json:"check_updates"`
+	CornerRadius    float32  `json:"corner_radius"`
 }
 
 // EditorConfig - настройки редактора кода
@@ -452,6 +453,7 @@ func DefaultConfig() *Config {
 			RecentProjects:  []string{},
 			StartupBehavior: "last_session",
 			CheckUpdates:    true,
+			CornerRadius:    6,
 		},
 
 		Editor: EditorConfig{
