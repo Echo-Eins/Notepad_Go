@@ -31,7 +31,6 @@ type HotkeyManager struct {
 	currentMode InputMode
 	vimState    *VimState
 	emacsState  *EmacsState
-	app         *App
 
 	// Контекст
 	currentContext HotkeyContext

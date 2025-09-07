@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -258,23 +260,53 @@ func (c *FormatCodeCommand) GetDescription() string {
 
 // formatCode форматирует код в зависимости от языка
 func formatCode(code, language string) (string, error) {
-	switch language {
+	switch strings.ToLower(language) {
 	case "go":
-		// TODO: Use gofmt
-		return code, nil
+		// Используем gofmt, читая код из stdin и получая форматированный код из stdout
+		return runFormatter("gofmt", nil, code)
 	case "python":
-		// TODO: Use black or autopep8
-		return code, nil
+		// Пытаемся использовать black, если он недоступен - пробуем autopep8
+		if formatted, err := runFormatter("black", []string{"--quiet", "-"}, code); err == nil {
+			return formatted, nil
+		} else if formatted, err := runFormatter("autopep8", []string{"-"}, code); err == nil {
+			return formatted, nil
+		} else {
+			return "", fmt.Errorf("python formatter not found: %w", err)
+		}
 	case "rust":
-		// TODO: Use rustfmt
-		return code, nil
+		// Форматирование через rustfmt
+		return runFormatter("rustfmt", []string{"--emit=stdout"}, code)
 	case "java":
-		// TODO: Use google-java-format
-		return code, nil
+		// Форматирование через google-java-format
+		return runFormatter("google-java-format", []string{"-"}, code)
 	default:
 		// Базовое форматирование отступов
 		return formatIndentation(code), nil
 	}
+}
+
+// runFormatter выполняет внешний форматтер, передавая ему код через stdin и возвращая результат из stdout
+func runFormatter(cmdName string, args []string, code string) (string, error) {
+	path, err := exec.LookPath(cmdName)
+	if err != nil {
+		return "", fmt.Errorf("%s not found", cmdName)
+	}
+
+	cmd := exec.Command(path, args...)
+	cmd.Stdin = strings.NewReader(code)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return "", fmt.Errorf("%s failed: %s", cmdName, strings.TrimSpace(stderr.String()))
+		}
+		return "", fmt.Errorf("%s failed: %w", cmdName, err)
+	}
+
+	return stdout.String(), nil
 }
 
 // formatIndentation выполняет базовое форматирование отступов
