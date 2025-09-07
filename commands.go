@@ -433,6 +433,7 @@ func (c *FindCommand) GetDescription() string {
 // GoToLineCommand - команда перехода к строке
 type GoToLineCommand struct {
 	lineNumber  int
+	oldLine     int
 	oldPosition TextPosition
 }
 

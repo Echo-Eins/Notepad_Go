@@ -1,32 +1,25 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"fyne.io/fyne/v2/theme"
-	"image/color"
-	"io/ioutil"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-	"unicode"
-
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/data/binding"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/fsnotify/fsnotify"
+	"image/color"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
 )
 
 // EditorWidget - основной виджет редактора с полным функционалом
@@ -85,6 +78,7 @@ type EditorWidget struct {
 	// File watching
 	fileWatcher   *fsnotify.Watcher
 	watcherCancel context.CancelFunc
+	searchResults []SearchResult
 
 	// Callbacks
 	onContentChanged func(content string)
@@ -108,6 +102,89 @@ type EditorWidget struct {
 
 	// Indent guides
 	indentGuides []IndentGuide
+	fileName     string
+}
+
+// IsDirty возвращает true, если есть несохраненные изменения
+func (e *EditorWidget) IsDirty() bool {
+	return e.isDirty
+}
+
+// LoadFile загружает файл в редактор
+func (e *EditorWidget) LoadFile(path string) error {
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	e.filePath = path
+	e.fileName = filepath.Base(path)
+	e.textContent = string(content)
+	e.isDirty = false
+	e.detectLanguage()
+	e.updateDisplay()
+	e.startFileWatcher()
+
+	return nil
+}
+
+// SaveFile сохраняет содержимое в файл
+func (e *EditorWidget) SaveFile() error {
+	if e.filePath == "" {
+		return fmt.Errorf("no file path specified")
+	}
+
+	err := ioutil.WriteFile(e.filePath, []byte(e.textContent), 0644)
+	if err != nil {
+		return err
+	}
+
+	e.isDirty = false
+	return nil
+}
+
+// SaveAsFile сохраняет файл с новым именем
+func (e *EditorWidget) SaveAsFile(path string) error {
+	e.filePath = path
+	e.fileName = filepath.Base(path)
+	return e.SaveFile()
+}
+
+// SetContent устанавливает содержимое редактора
+func (e *EditorWidget) SetContent(content string) {
+	e.textContent = content
+	e.content.SetText(content)
+	e.isDirty = true
+	e.updateDisplay()
+}
+
+// getLineCount возвращает количество строк
+func (e *EditorWidget) getLineCount() int {
+	if e.textContent == "" {
+		return 1
+	}
+	return len(strings.Split(e.textContent, "\n"))
+}
+
+// setupSyntaxHighlighter настраивает подсветку синтаксиса
+func (e *EditorWidget) setupSyntaxHighlighter() {
+	// Инициализируем стиль подсветки
+	e.style = styles.Get("monokai")
+	if e.style == nil {
+		e.style = styles.Fallback
+	}
+
+	// Создаем форматтер
+	e.formatter = formatters.Get("terminal")
+	if e.formatter == nil {
+		e.formatter = formatters.Fallback
+	}
+}
+
+type SearchResult struct {
+	Position TextPosition
+	Length   int
+	Text     string
 }
 
 // TextPosition представляет позицию в тексте
@@ -255,22 +332,6 @@ func (e *EditorWidget) setupComponents() {
 	e.mainContainer = container.NewMax(e.scrollContainer) // Используем container.NewMax вместо Border
 }
 
-// setupSyntaxHighlighter настраивает подсветку синтаксиса
-func (e *EditorWidget) setupSyntaxHighlighter() {
-	// Получаем стиль для темной/светлой темы
-	if e.config.App.Theme == "dark" { // Исправлено: config.App.Theme
-		e.style = styles.Get("monokai")
-	} else {
-		e.style = styles.Get("github")
-	}
-
-	// Создаем formatter для вывода
-	e.formatter = formatters.Get("terminal256")
-	if e.formatter == nil {
-		e.formatter = formatters.Fallback
-	}
-}
-
 // setupAutoSave настраивает автосохранение
 func (e *EditorWidget) setupAutoSave() {
 	if !e.config.Editor.AutoSave { // Исправлено: config.Editor.AutoSave
@@ -328,43 +389,8 @@ func (e *EditorWidget) resetAutoSaveTimer() {
 	}
 }
 
-// LoadFile загружает файл в редактор
-func (e *EditorWidget) LoadFile(filepath string, content string) {
-	e.filePath = filepath
-	e.SetText(content)
-	e.isDirty = false
-	e.detectLanguage()
-	e.updateDisplay()
-	e.startFileWatcher()
-}
-
-// SaveFile сохраняет содержимое в файл
-func (e *EditorWidget) SaveFile() error {
-	if e.filePath == "" {
-		return fmt.Errorf("no file path specified")
-	}
-
-	// Сохраняем файл
-	err := ioutil.WriteFile(e.filePath, []byte(e.textContent), 0644)
-	if err != nil {
-		return err
-	}
-
-	e.isDirty = false
-	e.lastSavedHash = e.getContentHash()
-
-	return nil
-}
-
-// SaveAsFile сохраняет файл с новым именем
-func (e *EditorWidget) SaveAsFile(filepath string) error {
-	e.filePath = filepath
-	e.fileName = filepath[strings.LastIndex(filepath, "\\")+1:]
-	return e.SaveFile()
-}
-
 // detectLanguage определяет язык программирования по расширению
-func (e *EditorWidget) detectLanguage(filepath string) {
+func (e *EditorWidget) detectLanguage() {
 	ext := strings.ToLower(filepath[strings.LastIndex(filepath, ".")+1:])
 
 	var lexerName string
@@ -428,17 +454,6 @@ func (e *EditorWidget) updateDisplay() {
 }
 
 // Дополнительные методы для поддержки HotkeyManager
-
-// IsDirty возвращает true, если есть несохраненные изменения
-func (e *EditorWidget) IsDirty() bool {
-	return e.isDirty
-}
-
-// SetFilePath устанавливает путь к файлу
-func (e *EditorWidget) SetFilePath(path string) {
-	e.filePath = path
-	e.detectLanguage()
-}
 
 // GetSelectedText возвращает выделенный текст
 func (e *EditorWidget) GetSelectedText() string {
@@ -994,14 +1009,6 @@ func (e *EditorWidget) getImportURL(importPath, language string) string {
 
 // Utility functions
 
-// getLineCount возвращает количество строк
-func (e *EditorWidget) getLineCount() int {
-	if e.textContent == "" {
-		return 1
-	}
-	return len(strings.Split(e.textContent, "\n"))
-}
-
 // onTextChanged вызывается при изменении текста
 func (e *EditorWidget) onTextChanged() {
 	e.isDirty = true
@@ -1099,11 +1106,6 @@ func (e *EditorWidget) CreateRenderer() fyne.WidgetRenderer {
 
 // Методы для внешнего API
 func (e *EditorWidget) GetContent() string { return e.textContent }
-func (e *EditorWidget) SetContent(text string) {
-	e.textContent = text
-	e.updateDisplay()
-}
-func (e *EditorWidget) IsDirty() bool       { return e.isDirty }
 func (e *EditorWidget) GetFilePath() string { return e.filePath }
 func (e *EditorWidget) GetFileName() string { return e.fileName }
 

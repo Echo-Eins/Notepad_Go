@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,19 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 )
+
+type Command struct {
+	Name     string
+	Shortcut string
+	Icon     fyne.Resource
+	Action   func()
+	Category string
+}
 
 // App представляет основное приложение
 type App struct {
@@ -118,7 +131,7 @@ func (a *App) setupUI() {
 func (a *App) createMainMenu() {
 	fileMenu := fyne.NewMenu("File",
 		fyne.NewMenuItem("New", a.newFile),
-		fyne.NewMenuItem("Open...", a.openFile),
+		fyne.NewMenuItem("Open...", func() { a.openFile() }),
 		fyne.NewMenuItem("Save", a.saveFile),
 		fyne.NewMenuItem("Save As...", a.saveAsFile),
 		fyne.NewMenuItemSeparator(),
@@ -359,16 +372,10 @@ func (a *App) createNewFile() {
 	}
 }
 
-func (a *App) openFile(paths ...string) {
-	if len(paths) > 0 {
-		// Открываем указанный файл
-		a.loadFile(paths[0])
-	} else {
-		// Показываем диалог выбора файла
-		a.dialogManager.ShowOpenFileDialog(func(path string) {
-			a.loadFile(path)
-		})
-	}
+func (a *App) openFile() {
+	a.dialogManager.ShowOpenFileDialog(func(path string) {
+		a.loadFile(path)
+	})
 }
 
 func (a *App) loadFile(path string) {
@@ -740,7 +747,7 @@ func (a *App) getAvailableCommands() []Command {
 		{Name: "Save File", Shortcut: "Ctrl+S", Icon: theme.DocumentSaveIcon(), Action: a.saveFile},
 		{Name: "Find", Shortcut: "Ctrl+F", Icon: theme.SearchIcon(), Action: a.showFind},
 		{Name: "Replace", Shortcut: "Ctrl+H", Icon: theme.SearchReplaceIcon(), Action: a.showReplace},
-		{Name: "Toggle Sidebar", Shortcut: "Ctrl+B", Icon: theme.ViewListIcon(), Action: a.toggleSidebar},
+		{Name: "Toggle Sidebar", Shortcut: "Ctrl+B", Icon: theme.MenuIcon(), Action: a.toggleSidebar}, // Исправлено: заменено ViewListIcon на MenuIcon
 		{Name: "Toggle Minimap", Shortcut: "Ctrl+M", Icon: theme.ViewFullScreenIcon(), Action: a.toggleMinimap},
 		{Name: "Format Code", Shortcut: "Shift+Alt+F", Icon: theme.DocumentIcon(), Action: a.formatCode},
 		{Name: "Preferences", Shortcut: "", Icon: theme.SettingsIcon(), Action: a.showPreferences},
@@ -826,9 +833,8 @@ func (a *App) openPowerShell() {
 }
 
 func (a *App) showCustomTools() {
-	// Создаем диалог для пользовательских инструментов
 	if len(a.config.ExternalTools.CustomTools) == 0 {
-		dialog.ShowInformation("Custom Tools", "No custom tools configured.\nGo to Preferences to add tools.", a.mainWin)
+		dialog.ShowInformation("Custom Tools", "No custom tools configured", a.mainWin)
 		return
 	}
 
@@ -848,13 +854,17 @@ func (a *App) showCustomTools() {
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			container := o.(*container.HBox)
-			label := container.Objects[1].(*widget.Label)
-			button := container.Objects[2].(*widget.Button)
+			hbox := o.(*container.HBox)
+			if len(hbox.Objects) >= 3 {
+				label, ok1 := hbox.Objects[1].(*widget.Label)
+				button, ok2 := hbox.Objects[2].(*widget.Button)
 
-			label.SetText(toolNames[i])
-			button.OnTapped = func() {
-				a.runCustomTool(a.config.ExternalTools.CustomTools[i])
+				if ok1 && ok2 {
+					label.SetText(toolNames[i])
+					button.OnTapped = func() {
+						a.runCustomTool(a.config.ExternalTools.CustomTools[i])
+					}
+				}
 			}
 		},
 	)
@@ -1097,16 +1107,18 @@ func (a *App) showRecentFiles() {
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			container := o.(*container.HBox)
-			label := container.Objects[1].(*widget.Label)
-			button := container.Objects[2].(*widget.Button)
+			hbox := o.(*container.HBox)
+			if len(hbox.Objects) >= 3 {
+				label, ok1 := hbox.Objects[1].(*widget.Label)
+				button, ok2 := hbox.Objects[2].(*widget.Button)
 
-			file := a.recentFiles[i]
-			label.SetText(filepath.Base(file))
-			label.Truncation = fyne.TextTruncateEllipsis
-
-			button.OnTapped = func() {
-				a.openFile(file)
+				if ok1 && ok2 {
+					label.SetText(filepath.Base(a.recentFiles[i]))
+					button.OnTapped = func() {
+						recentFile := a.recentFiles[i]
+						a.loadFile(recentFile)
+					}
+				}
 			}
 		},
 	)
@@ -1452,9 +1464,11 @@ func (a *App) applyFontSize() {
 }
 
 func (a *App) updateStatusBar(row, col int) {
-	// Обновляем позицию курсора в статус баре
-	// Нужно получить доступ к элементам статус бара
-	// Для этого сохраним их как поля структуры App
+	if a.statusBar != nil && a.editor != nil {
+		totalLines := a.editor.getLineCount()
+		status := fmt.Sprintf("Line %d, Column %d | Total Lines: %d", row+1, col+1, totalLines)
+		a.statusBar.SetText(status)
+	}
 }
 
 func (a *App) scrollEditorTo(position float32) {

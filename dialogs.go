@@ -640,16 +640,6 @@ func (dm *DialogManager) ShowAboutDialog() {
 	aboutDialog.Show()
 }
 
-// Command представляет команду в палитре команд
-type Command struct {
-	Name        string
-	Description string
-	Shortcut    string
-	Icon        fyne.Resource
-	Action      func()
-	Category    string
-}
-
 // filterCommands фильтрует команды по тексту поиска (fuzzy search)
 func filterCommands(commands []Command, searchText string) []Command {
 	searchText = strings.ToLower(searchText)

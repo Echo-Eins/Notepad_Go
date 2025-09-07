@@ -31,6 +31,7 @@ type HotkeyManager struct {
 	currentMode InputMode
 	vimState    *VimState
 	emacsState  *EmacsState
+	app         *App
 
 	// Контекст
 	currentContext HotkeyContext
@@ -236,6 +237,10 @@ type KeyLogEntry struct {
 	Mode      InputMode
 	Action    string
 	Result    string
+}
+
+func (hm *HotkeyManager) SetApp(app *App) {
+	hm.app = app
 }
 
 // NewHotkeyManager создает новый менеджер горячих клавиш

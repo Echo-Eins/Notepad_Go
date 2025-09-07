@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fsnotify/fsnotify"
@@ -28,12 +26,15 @@ type SidebarWidget struct {
 	widget.BaseWidget
 
 	// UI компоненты
-	mainContainer *container.Border
-	toolbar       *container.HBox
+	mainContainer *fyne.Container
+	toolbar       *fyne.Container
 	searchEntry   *widget.Entry
 	filterSelect  *widget.Select
 	fileTree      *widget.Tree
 	statusLabel   *widget.Label
+
+	lastTap     string
+	lastTapTime time.Time
 
 	// Состояние
 	rootPath    string
@@ -151,27 +152,6 @@ var FileFilters = map[string]FileFilter{
 	},
 }
 
-// NewSidebar создает новый файловый менеджер
-func NewSidebar(config *Config) *SidebarWidget {
-	sidebar := &SidebarWidget{
-		config:        config,
-		fileNodes:     make(map[string]*FileNode),
-		filteredNodes: make(map[string]*FileNode),
-		watchedDirs:   make(map[string]bool),
-		refreshChan:   make(chan string, 100),
-		isVisible:     true,
-		activeFilter:  "All",
-		sortBy:        SortByName,
-		sortAscending: true,
-	}
-
-	sidebar.ExtendBaseWidget(sidebar)
-	sidebar.setupComponents()
-	sidebar.startRefreshWorker()
-
-	return sidebar
-}
-
 // setupComponents создает UI компоненты
 func (s *SidebarWidget) setupComponents() {
 	// Поиск
@@ -205,20 +185,24 @@ func (s *SidebarWidget) setupComponents() {
 
 	// Обработчики событий дерева
 	s.fileTree.OnSelected = func(uid string) {
-		s.selectedFile = uid
-		if s.onFileSelected != nil {
-			s.onFileSelected(uid)
-		}
-	}
-
-	// Двойной клик для открытия файла
-	s.fileTree.OnTapped = func(uid string) {
-		node := s.getNodeByPath(uid)
-		if node != nil && !node.IsDir {
-			if s.onFileOpened != nil {
-				s.onFileOpened(uid)
+		now := time.Now()
+		if s.lastTap == uid && now.Sub(s.lastTapTime) < 400*time.Millisecond {
+			// двойной клик
+			node := s.getNodeByPath(uid)
+			if node != nil && !node.IsDir {
+				if s.onFileOpened != nil {
+					s.onFileOpened(uid)
+				}
+			}
+		} else {
+			// обычный клик
+			s.selectedFile = uid
+			if s.onFileSelected != nil {
+				s.onFileSelected(uid)
 			}
 		}
+		s.lastTap = uid
+		s.lastTapTime = now
 	}
 
 	// Кнопки управления
@@ -251,15 +235,38 @@ func (s *SidebarWidget) setupComponents() {
 	s.statusLabel = widget.NewLabel("Ready")
 	s.statusLabel.TextStyle.Italic = true
 
-	// Основной layout
+	// Toolbar + строка поиска
 	searchContainer := container.NewBorder(nil, nil, nil, s.filterSelect, s.searchEntry)
 
+	// Основной layout
 	s.mainContainer = container.NewBorder(
-		container.NewVBox(s.toolbar, searchContainer),
-		s.statusLabel,
-		nil, nil,
-		container.NewScroll(s.fileTree),
+		container.NewVBox(s.toolbar, searchContainer), // top
+		s.statusLabel,                   // bottom
+		nil,                             // left
+		nil,                             // right
+		container.NewScroll(s.fileTree), // content (center)
 	)
+}
+
+// NewSidebar создает новый файловый менеджер
+func NewSidebar(config *Config) *SidebarWidget {
+	sidebar := &SidebarWidget{
+		config:        config,
+		fileNodes:     make(map[string]*FileNode),
+		filteredNodes: make(map[string]*FileNode),
+		watchedDirs:   make(map[string]bool),
+		refreshChan:   make(chan string, 100),
+		isVisible:     true,
+		activeFilter:  "All",
+		sortBy:        SortByName,
+		sortAscending: true,
+	}
+
+	sidebar.ExtendBaseWidget(sidebar)
+	sidebar.setupComponents()
+	sidebar.startRefreshWorker()
+
+	return sidebar
 }
 
 // Tree interface methods
@@ -327,7 +334,7 @@ func (s *SidebarWidget) treeUpdateNode(uid string, branch bool, node fyne.Canvas
 		return
 	}
 
-	container := node.(*container.HBox)
+	container := node.(*fyne.Container) // вместо *container.HBox
 	icon := container.Objects[0].(*widget.Icon)
 	label := container.Objects[1].(*widget.Label)
 
@@ -1181,16 +1188,21 @@ func (s *SidebarWidget) showContextMenuDialog(menu *fyne.Menu) {
 	buttons := []fyne.CanvasObject{}
 
 	for _, item := range menu.Items {
-		if item.IsSeparator {
+		if item.Label == "-" { // в fyne разделитель указывают через Label = "-"
 			buttons = append(buttons, widget.NewSeparator())
 		} else {
-			btn := widget.NewButton(item.Text, item.Action)
+			btn := widget.NewButton(item.Label, item.Action)
 			buttons = append(buttons, btn)
 		}
 	}
 
 	content := container.NewVBox(buttons...)
-	dialog.NewCustom("File Operations", "Close", content, fyne.CurrentApp().Driver().AllWindows()[0]).Show()
+	dialog.NewCustom(
+		"File Operations",
+		"Close",
+		content,
+		fyne.CurrentApp().Driver().AllWindows()[0],
+	).Show()
 }
 
 // Public API methods

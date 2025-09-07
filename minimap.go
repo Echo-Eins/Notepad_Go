@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"image/color"
-	"math"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -12,7 +10,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/alecthomas/chroma/v2"
 )
@@ -22,7 +19,7 @@ type MinimapWidget struct {
 	widget.BaseWidget
 
 	// UI компоненты
-	mainContainer   *container.Border
+	mainContainer   *fyne.Container
 	scrollContainer *container.Scroll
 	canvas          *fyne.Container
 	viewport        *ViewportIndicator
@@ -207,42 +204,30 @@ func NewMinimap(editor *EditorWidget) *MinimapWidget {
 	return minimap
 }
 
-// setupColors настраивает цветовую схему
-func (m *MinimapWidget) setupColors() {
-	// Получаем цвета из редактора
+// SetupColors настраивает цветовую схему
+func (m *MinimapWidget) SetupColors() {
+	// 1) Если редактор реализует MinimapColorProvider — берём палитру оттуда.
 	if m.editor != nil {
-		editorColors := m.editor.colors
+		if cp, ok := any(m.editor).(MinimapColorProvider); ok {
+			m.colors = cp.MinimapColors()
+			return
+		}
+	}
 
-		m.colors = MinimapColors{
-			Background:     editorColors.Background,
-			Text:           editorColors.Variable,
-			Comment:        editorColors.Comment,
-			String:         editorColors.String,
-			Keyword:        editorColors.Keyword,
-			Number:         editorColors.Number,
-			Function:       editorColors.Function,
-			Viewport:       color.NRGBA{0x00, 0x78, 0xD4, 0x40}, // Полупрозрачный синий
-			ViewportBorder: color.NRGBA{0x00, 0x78, 0xD4, 0xFF}, // Синий
-			ScrollBar:      color.NRGBA{0x5A, 0x5A, 0x5A, 0xFF}, // Серый
-			LineNumber:     color.NRGBA{0x86, 0x86, 0x86, 0xFF}, // Светло-серый
-			Selection:      editorColors.Selection,
-		}
-	} else {
-		// Fallback цвета
-		m.colors = MinimapColors{
-			Background:     color.NRGBA{0x1E, 0x1E, 0x1E, 0xFF},
-			Text:           color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF},
-			Comment:        color.NRGBA{0x6A, 0x99, 0x55, 0xFF},
-			String:         color.NRGBA{0xCE, 0x91, 0x78, 0xFF},
-			Keyword:        color.NRGBA{0x56, 0x9C, 0xD6, 0xFF},
-			Number:         color.NRGBA{0xB5, 0xCE, 0xA8, 0xFF},
-			Function:       color.NRGBA{0xDC, 0xDC, 0xAA, 0xFF},
-			Viewport:       color.NRGBA{0x00, 0x78, 0xD4, 0x40},
-			ViewportBorder: color.NRGBA{0x00, 0x78, 0xD4, 0xFF},
-			ScrollBar:      color.NRGBA{0x5A, 0x5A, 0x5A, 0xFF},
-			LineNumber:     color.NRGBA{0x86, 0x86, 0x86, 0xFF},
-			Selection:      color.NRGBA{0x26, 0x4F, 0x78, 0x80},
-		}
+	// 2) Фолбэк-цвета (если редактор не предоставляет палитру)
+	m.colors = MinimapColors{
+		Background:     color.NRGBA{0x1E, 0x1E, 0x1E, 0xFF},
+		Text:           color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF},
+		Comment:        color.NRGBA{0x6A, 0x99, 0x55, 0xFF},
+		String:         color.NRGBA{0xCE, 0x91, 0x78, 0xFF},
+		Keyword:        color.NRGBA{0x56, 0x9C, 0xD6, 0xFF},
+		Number:         color.NRGBA{0xB5, 0xCE, 0xA8, 0xFF},
+		Function:       color.NRGBA{0xDC, 0xDC, 0xAA, 0xFF},
+		Viewport:       color.NRGBA{0x00, 0x78, 0xD4, 0x40}, // полупрозрачный синий
+		ViewportBorder: color.NRGBA{0x00, 0x78, 0xD4, 0xFF}, // синий
+		ScrollBar:      color.NRGBA{0x5A, 0x5A, 0x5A, 0xFF},
+		LineNumber:     color.NRGBA{0x86, 0x86, 0x86, 0xFF},
+		Selection:      color.NRGBA{0x26, 0x4F, 0x78, 0x80},
 	}
 }
 
@@ -431,9 +416,9 @@ func (m *MinimapWidget) applyTokensToMinimap() {
 					Color:     tokenColor,
 					StartCol:  currentCol,
 					EndCol:    currentCol + len(tokenLine),
-					IsKeyword: token.Type.In(chroma.Keyword),
-					IsComment: token.Type.In(chroma.Comment),
-					IsString:  token.Type.In(chroma.String),
+					IsKeyword: token.Type.InCategory(chroma.Keyword) || token.Type.InSubCategory(chroma.Keyword),
+					IsComment: token.Type.InCategory(chroma.Comment) || token.Type.InSubCategory(chroma.Comment),
+					IsString:  token.Type.InCategory(chroma.String) || token.Type.InSubCategory(chroma.String),
 				}
 
 				// Заменяем или добавляем сегмент
@@ -460,15 +445,16 @@ func (m *MinimapWidget) applyTokensToMinimap() {
 // getTokenColor возвращает цвет для типа токена
 func (m *MinimapWidget) getTokenColor(tokenType chroma.TokenType) color.Color {
 	switch {
-	case tokenType.In(chroma.Keyword):
+	case tokenType.InCategory(chroma.Keyword) || tokenType.InSubCategory(chroma.Keyword):
 		return m.colors.Keyword
-	case tokenType.In(chroma.String):
+	case tokenType.InCategory(chroma.String) || tokenType.InSubCategory(chroma.String):
 		return m.colors.String
-	case tokenType.In(chroma.Comment):
+	case tokenType.InCategory(chroma.Comment) || tokenType.InSubCategory(chroma.Comment):
 		return m.colors.Comment
-	case tokenType.In(chroma.Number):
+	case tokenType.InCategory(chroma.Number) || tokenType.InSubCategory(chroma.Number):
 		return m.colors.Number
-	case tokenType.In(chroma.Name.Function):
+	// Имя функции — это подкатегория NameFunction (а не Name.Function)
+	case tokenType == chroma.NameFunction || tokenType.InSubCategory(chroma.NameFunction):
 		return m.colors.Function
 	default:
 		return m.colors.Text
