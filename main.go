@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,10 +12,6 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-
-	"github.com/alecthomas/chroma/v2/formatters"
-	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
 )
 
 type Command struct {
@@ -120,7 +115,7 @@ func (a *App) setupUI() {
 
 	// Загружаем последнюю сессию если настроено
 	if a.config.App.StartupBehavior == "last_session" && len(a.recentFiles) > 0 {
-		a.openFile(a.recentFiles[0])
+		a.loadFile(a.recentFiles[0])
 	}
 
 	// Устанавливаем начальную директорию для сайдбара
@@ -280,7 +275,7 @@ func (a *App) setupCallbacks() {
 				// Предпросмотр файла
 			},
 			func(path string) { // onFileOpened
-				a.openFile(path)
+				a.loadFile(path)
 			},
 			func(path string) { // onPathChanged
 				// Обновляем рабочую директорию
@@ -856,10 +851,10 @@ func (a *App) showCustomTools() {
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			hbox := o.(*container.HBox)
-			if len(hbox.Objects) >= 3 {
-				label, ok1 := hbox.Objects[1].(*widget.Label)
-				button, ok2 := hbox.Objects[2].(*widget.Button)
+			box := o.(*fyne.Container)
+			if len(box.Objects) >= 3 {
+				label, ok1 := box.Objects[1].(*widget.Label)
+				button, ok2 := box.Objects[2].(*widget.Button)
 
 				if ok1 && ok2 {
 					label.SetText(toolNames[i])
@@ -1065,10 +1060,10 @@ func (a *App) showKeyBindings() {
 				)
 			},
 			func(i widget.ListItemID, o fyne.CanvasObject) {
-				container := o.(*container.HBox)
-				actionLabel := container.Objects[0].(*widget.Label)
-				shortcutLabel := container.Objects[1].(*widget.Label)
-				button := container.Objects[2].(*widget.Button)
+				box := o.(*fyne.Container)
+				actionLabel := box.Objects[0].(*widget.Label)
+				shortcutLabel := box.Objects[1].(*widget.Label)
+				button := box.Objects[2].(*widget.Button)
 
 				shortcut := categoryShortcuts[i]
 				actionLabel.SetText(shortcut.Description)
@@ -1109,10 +1104,10 @@ func (a *App) showRecentFiles() {
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			hbox := o.(*container.HBox)
-			if len(hbox.Objects) >= 3 {
-				label, ok1 := hbox.Objects[1].(*widget.Label)
-				button, ok2 := hbox.Objects[2].(*widget.Button)
+			box := o.(*fyne.Container)
+			if len(box.Objects) >= 3 {
+				label, ok1 := box.Objects[1].(*widget.Label)
+				button, ok2 := box.Objects[2].(*widget.Button)
 
 				if ok1 && ok2 {
 					label.SetText(filepath.Base(a.recentFiles[i]))
@@ -1386,9 +1381,9 @@ func (a *App) showLintResults(errors []CompilerError) {
 			)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			container := o.(*container.HBox)
-			icon := container.Objects[0].(*widget.Icon)
-			label := container.Objects[1].(*widget.Label)
+			box := o.(*fyne.Container)
+			icon := box.Objects[0].(*widget.Icon)
+			label := box.Objects[1].(*widget.Label)
 
 			err := errors[i]
 			if err.Type == "warning" {

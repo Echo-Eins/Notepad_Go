@@ -531,10 +531,63 @@ func (dm *DialogManager) createKeyBindingsSettings(config *Config) fyne.CanvasOb
 			label := box.Objects[0].(*widget.Label)
 			button := box.Objects[1].(*widget.Button)
 
-			kb := keyBindings[index]
+			kb := &keyBindings[index]
 			label.SetText(fmt.Sprintf("%s: %s", kb.Name, kb.Current))
 			button.OnTapped = func() {
-				// TODO: Implement key binding change dialog
+				entry := widget.NewEntry()
+				entry.SetPlaceHolder("e.g. Ctrl+N")
+				entry.SetText(kb.Current)
+
+				form := dialog.NewForm(
+					fmt.Sprintf("Change %s", kb.Name),
+					"Save",
+					"Cancel",
+					[]*widget.FormItem{
+						widget.NewFormItem("Shortcut", entry),
+					},
+					func(confirmed bool) {
+						if !confirmed {
+							return
+						}
+						newBinding := strings.TrimSpace(entry.Text)
+						if newBinding == "" {
+							return
+						}
+
+						// Validate key binding format using existing parser
+						var hm HotkeyManager
+						if _, err := hm.parseKeyBinding(newBinding); err != nil {
+							dialog.ShowError(err, dm.mainWindow)
+							return
+						}
+
+						kb.Current = newBinding
+						switch kb.Action {
+						case "new_file":
+							config.KeyBindings.NewFile = newBinding
+						case "open_file":
+							config.KeyBindings.OpenFile = newBinding
+						case "save_file":
+							config.KeyBindings.SaveFile = newBinding
+						case "find":
+							config.KeyBindings.Find = newBinding
+						case "replace":
+							config.KeyBindings.Replace = newBinding
+						case "go_to_line":
+							config.KeyBindings.GoToLine = newBinding
+						case "toggle_sidebar":
+							config.KeyBindings.ToggleSidebar = newBinding
+						case "toggle_minimap":
+							config.KeyBindings.ToggleMinimap = newBinding
+						case "command_palette":
+							config.KeyBindings.CommandPalette = newBinding
+						}
+						label.SetText(fmt.Sprintf("%s: %s", kb.Name, kb.Current))
+					},
+					dm.mainWindow,
+				)
+				form.Resize(fyne.NewSize(400, 150))
+				form.Show()
 			}
 		},
 	)
