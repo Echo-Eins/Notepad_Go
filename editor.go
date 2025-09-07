@@ -40,7 +40,7 @@ type EditorWidget struct {
 
 	// Конфигурация
 	config *Config
-	colors map[string]color.Color
+	colors EditorColors
 
 	// Состояние редактора
 	filePath    string
@@ -199,6 +199,12 @@ type SearchResult struct {
 	Text     string
 }
 
+// CompletionItem represents a single autocomplete suggestion
+type CompletionItem struct {
+	Text        string
+	Description string
+}
+
 // TextPosition представляет позицию в тексте
 type TextPosition struct {
 	Row int
@@ -263,7 +269,6 @@ type BracketPair struct {
 	IsMatched bool
 }
 
-// NewEditor создает новый экземпляр редактора
 // NewEditor создает новый экземпляр редактора
 func NewEditor(config *Config) *EditorWidget {
 	editor := &EditorWidget{
@@ -369,19 +374,12 @@ func (e *EditorWidget) bindEvents() {
 	}
 
 	// Обработчик изменения позиции курсора
-	if entry, ok := e.content.(*widget.Entry); ok {
-		entry.OnCursorChanged = func() {
-			// Обновляем позицию курсора
-			e.updateCursorPosition()
-		}
+	e.content.OnCursorChanged = func() {
+		// Обновляем позицию курсора
+		e.updateCursorPosition()
 	}
 
-	// Для контекстного меню используем TappedSecondary на всем виджете
-	e.content.OnTapped = func(event *fyne.PointEvent) {
-		// Обработка клика
-	}
-
-	// Добавляем обработку правого клика через расширение
+	// Добавляем обработку кликов через расширение базового виджета
 	e.ExtendBaseWidget(e)
 }
 
@@ -392,12 +390,10 @@ func (e *EditorWidget) TappedSecondary(event *fyne.PointEvent) {
 
 // updateCursorPosition обновляет внутреннее состояние позиции курсора
 func (e *EditorWidget) updateCursorPosition() {
-	if entry, ok := e.content.(*widget.Entry); ok {
-		e.cursorRow = entry.CursorRow
-		e.cursorCol = entry.CursorColumn
-		if e.onCursorChanged != nil {
-			e.onCursorChanged(e.cursorRow, e.cursorCol)
-		}
+	e.cursorRow = e.content.CursorRow
+	e.cursorCol = e.content.CursorColumn
+	if e.onCursorChanged != nil {
+		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
 }
 
@@ -504,7 +500,7 @@ func (e *EditorWidget) GetCurrentLine() string {
 
 // SelectAll выделяет весь текст
 func (e *EditorWidget) SelectAll() {
-	e.content.SelectAll()
+	e.content.TypedShortcut(&fyne.ShortcutSelectAll{})
 }
 
 // GetCursorPosition возвращает позицию курсора
@@ -560,35 +556,31 @@ func (e *EditorWidget) applyTokensToRichText() {
 			continue
 		}
 
-		style := widget.RichTextStyle{}
-		color := e.getTokenColor(token.Type)
+		style := widget.RichTextStyle{Inline: true, ColorName: e.getTokenColor(token.Type)}
 
 		segment := &widget.TextSegment{
 			Text:  token.Value,
 			Style: style,
 		}
-
-		// Устанавливаем цвет (это зависит от реализации Fyne)
-		_ = color // TODO: применить цвет к сегменту
-
 		segments = append(segments, segment)
 	}
 
-	e.content.Segments = segments
+	e.richContent.Segments = segments
+	e.richContent.Refresh()
 }
 
 // getTokenColor возвращает цвет для типа токена
 func (e *EditorWidget) getTokenColor(tokenType chroma.TokenType) fyne.ThemeColorName {
 	switch {
-	case tokenType.In(chroma.Keyword):
+	case tokenType.InCategory(chroma.Keyword):
 		return theme.ColorNamePrimary
-	case tokenType.In(chroma.String):
+	case tokenType.InCategory(chroma.String):
 		return theme.ColorNameSuccess
-	case tokenType.In(chroma.Comment):
+	case tokenType.InCategory(chroma.Comment):
 		return theme.ColorNameDisabled
-	case tokenType.In(chroma.Number):
+	case tokenType.InCategory(chroma.LiteralNumber), tokenType.InCategory(chroma.Number):
 		return theme.ColorNameWarning
-	case tokenType.In(chroma.Name):
+	case tokenType.InCategory(chroma.Name):
 		return theme.ColorNameForeground
 	default:
 		return theme.ColorNameForeground
@@ -600,13 +592,13 @@ func (e *EditorWidget) updateBracketMatching() {
 	e.matchingBrackets = make(map[int]int)
 	e.bracketPairs = []BracketPair{}
 
-	brackets := []rune{'(', ')', '[', ']', '{', '}'}
 	stack := []TextPosition{}
 
 	lines := strings.Split(e.textContent, "\n")
 
 	for row, line := range lines {
-		for col, char := range line {
+		runes := []rune(line)
+		for col, char := range runes {
 			pos := TextPosition{Row: row, Col: col}
 
 			switch char {
@@ -617,8 +609,8 @@ func (e *EditorWidget) updateBracketMatching() {
 					openPos := stack[len(stack)-1]
 					stack = stack[:len(stack)-1]
 
-					// Проверяем соответствие типов скобок
-					if e.bracketTypesMatch(lines[openPos.Row][openPos.Col], char) {
+					openLine := []rune(lines[openPos.Row])
+					if openPos.Col < len(openLine) && e.bracketTypesMatch(openLine[openPos.Col], char) {
 						pair := BracketPair{
 							Open:      openPos,
 							Close:     pos,
@@ -1206,14 +1198,12 @@ func (e *EditorWidget) goToDefinition(name string) {
 	lines := strings.Split(e.textContent, "\n")
 	for i, line := range lines {
 		if idx := strings.Index(line, name); idx >= 0 {
-			if entry, ok := e.content.(*widget.Entry); ok {
-				entry.CursorRow = i
-				entry.CursorColumn = idx
-				entry.Refresh()
-			}
+			e.content.CursorRow = i
+			e.content.CursorColumn = idx
+			e.content.Refresh()
 			e.cursorRow = i
 			e.cursorCol = idx
-			e.scrollContainer.ScrollTo(fyne.NewPos(0, float32(i)*theme.TextSize()))
+			e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(i)*theme.TextSize()))
 			break
 		}
 	}
