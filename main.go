@@ -1198,7 +1198,7 @@ func (a *App) showKeyBindings() {
 
 				shortcut := categoryShortcuts[i]
 				actionLabel.SetText(shortcut.Description)
-				shortcutLabel.SetText(a.hotkeyManager.shortcutToString(shortcut.Shortcut))
+				shortcutLabel.SetText(shortcut.KeyBinding)
 
 				button.OnTapped = func() {
 					a.changeKeyBinding(shortcut)
@@ -1825,7 +1825,7 @@ func (a *App) changeKeyBinding(shortcut *RegisteredShortcut) {
 	dialog.ShowCustomConfirm("Change Key Binding", "Save", "Cancel",
 		container.NewVBox(
 			widget.NewLabel(shortcut.Description),
-			widget.NewLabel("Current: "+a.hotkeyManager.shortcutToString(shortcut.Shortcut)),
+			widget.NewLabel("Current: "+shortcut.KeyBinding),
 			entry,
 		), func(save bool) {
 			if save && entry.Text != "" {

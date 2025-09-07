@@ -38,7 +38,7 @@ type HotkeyManager struct {
 	actions map[string]HotkeyAction
 
 	// Мультиклавишные комбинации
-	pendingKeys     []fyne.KeyName
+	pendingKeys     []string
 	pendingTimeout  *time.Timer
 	pendingCallback func()
 
@@ -59,6 +59,7 @@ type HotkeyManager struct {
 // RegisteredShortcut - зарегистрированная горячая клавиша
 type RegisteredShortcut struct {
 	ID            string
+	KeyBinding    string
 	Shortcut      *desktop.CustomShortcut
 	Action        HotkeyAction
 	Context       HotkeyContext
@@ -252,7 +253,7 @@ func NewHotkeyManager(config *Config, window fyne.Window) *HotkeyManager {
 		actions:          make(map[string]HotkeyAction),
 		currentMode:      ModeNormal,
 		currentContext:   ContextGlobal,
-		pendingKeys:      []fyne.KeyName{},
+		pendingKeys:      []string{},
 		debugMode:        false,
 
 		vimState: &VimState{
@@ -488,7 +489,8 @@ func (hm *HotkeyManager) registerShortcut(id, keyBinding, actionName string, con
 
 // registerShortcutWithAction регистрирует горячую клавишу с функцией
 func (hm *HotkeyManager) registerShortcutWithAction(id, keyBinding string, action HotkeyAction, context HotkeyContext, category string) {
-	shortcut, err := hm.parseKeyBinding(keyBinding)
+	parts := strings.Split(keyBinding, " ")
+	shortcut, err := hm.parseKeyBinding(parts[0])
 	if err != nil {
 		fmt.Printf("Error parsing key binding '%s': %v\n", keyBinding, err)
 		return
@@ -496,6 +498,7 @@ func (hm *HotkeyManager) registerShortcutWithAction(id, keyBinding string, actio
 
 	registered := &RegisteredShortcut{
 		ID:              id,
+		KeyBinding:      keyBinding,
 		Shortcut:        shortcut,
 		Action:          action,
 		Context:         context,
@@ -522,8 +525,8 @@ func (hm *HotkeyManager) registerShortcutWithAction(id, keyBinding string, actio
 	// Регистрируем по контексту
 	hm.contextShortcuts[context][keyBinding] = registered
 
-	// Регистрируем в Fyne если это основное окно
-	if context == ContextGlobal || context == ContextEditor {
+	// Регистрируем в Fyne если это одношаговая комбинация
+	if len(parts) == 1 && (context == ContextGlobal || context == ContextEditor) {
 		hm.window.Canvas().AddShortcut(shortcut, hm.createShortcutHandler(registered))
 	}
 }
@@ -1008,15 +1011,16 @@ func (hm *HotkeyManager) handleEmacsKeyEvent(event *fyne.KeyEvent) bool {
 
 // handleMultiKeySequence обрабатывает мультиклавишные комбинации
 func (hm *HotkeyManager) handleMultiKeySequence(event *fyne.KeyEvent) bool {
-	// Добавляем клавишу к ожидающим
-	hm.pendingKeys = append(hm.pendingKeys, event.Name)
+	// Добавляем клавишу к ожидающим с учетом модификаторов
+	combo := hm.formatKeyEvent(event)
+	hm.pendingKeys = append(hm.pendingKeys, combo)
 
-	keySequence := hm.keySequenceToString(hm.pendingKeys)
+	keySequence := strings.Join(hm.pendingKeys, " ")
 
 	// Проверяем зарегистрированные последовательности
 	for _, shortcut := range hm.shortcuts {
-		if shortcut.Enabled && hm.isContextActive(shortcut.Context) {
-			shortcutSequence := hm.shortcutToString(shortcut.Shortcut)
+		if shortcut.Enabled && hm.isContextActive(shortcut.Context) && strings.Contains(shortcut.KeyBinding, " ") {
+			shortcutSequence := shortcut.KeyBinding
 
 			if keySequence == shortcutSequence {
 				// Найдена полная последовательность
@@ -1042,7 +1046,7 @@ func (hm *HotkeyManager) handleMultiKeySequence(event *fyne.KeyEvent) bool {
 func (hm *HotkeyManager) handleNormalKeyEvent(event *fyne.KeyEvent) {
 	// Ищем прямые совпадения
 	for _, shortcut := range hm.contextShortcuts[hm.currentContext] {
-		if shortcut.Enabled && hm.matchesKeyEvent(shortcut.Shortcut, event) {
+		if !strings.Contains(shortcut.KeyBinding, " ") && shortcut.Enabled && hm.matchesKeyEvent(shortcut.Shortcut, event) {
 			if hm.executeShortcut(shortcut) {
 				return
 			}
@@ -1051,7 +1055,7 @@ func (hm *HotkeyManager) handleNormalKeyEvent(event *fyne.KeyEvent) {
 
 	// Проверяем глобальные горячие клавиши
 	for _, shortcut := range hm.contextShortcuts[ContextGlobal] {
-		if shortcut.Enabled && hm.matchesKeyEvent(shortcut.Shortcut, event) {
+		if !strings.Contains(shortcut.KeyBinding, " ") && shortcut.Enabled && hm.matchesKeyEvent(shortcut.Shortcut, event) {
 			hm.executeShortcut(shortcut)
 			return
 		}
@@ -1178,24 +1182,25 @@ func (hm *HotkeyManager) keySequenceToString(keys []fyne.KeyName) string {
 	return strings.Join(parts, " ")
 }
 
-// shortcutToString преобразует shortcut в строку
-func (hm *HotkeyManager) shortcutToString(shortcut *desktop.CustomShortcut) string {
+// formatKeyEvent формирует строковое представление нажатой клавиши с модификаторами
+func (hm *HotkeyManager) formatKeyEvent(event *fyne.KeyEvent) string {
+	state := hm.getModifierState()
 	var parts []string
 
-	if shortcut.Modifier&fyne.KeyModifierControl != 0 {
+	if state.Ctrl {
 		parts = append(parts, "Ctrl")
 	}
-	if shortcut.Modifier&fyne.KeyModifierAlt != 0 {
+	if state.Alt {
 		parts = append(parts, "Alt")
 	}
-	if shortcut.Modifier&fyne.KeyModifierShift != 0 {
+	if state.Shift {
 		parts = append(parts, "Shift")
 	}
-	if shortcut.Modifier&fyne.KeyModifierSuper != 0 {
+	if state.Super {
 		parts = append(parts, "Super")
 	}
 
-	parts = append(parts, string(shortcut.KeyName))
+	parts = append(parts, string(event.Name))
 
 	return strings.Join(parts, "+")
 }
@@ -1293,7 +1298,7 @@ func (hm *HotkeyManager) onContextChanged(oldContext, newContext HotkeyContext) 
 
 // clearPendingKeys очищает ожидающие клавиши
 func (hm *HotkeyManager) clearPendingKeys() {
-	hm.pendingKeys = []fyne.KeyName{}
+	hm.pendingKeys = []string{}
 	if hm.pendingTimeout != nil {
 		hm.pendingTimeout.Stop()
 		hm.pendingTimeout = nil
@@ -1318,7 +1323,7 @@ func (hm *HotkeyManager) findConflictingShortcuts(keyBinding string, context Hot
 	var conflicts []*RegisteredShortcut
 
 	for _, shortcut := range hm.shortcuts {
-		if shortcut.Context == context && hm.shortcutToString(shortcut.Shortcut) == keyBinding {
+		if shortcut.Context == context && shortcut.KeyBinding == keyBinding {
 			conflicts = append(conflicts, shortcut)
 		}
 	}
@@ -1418,22 +1423,29 @@ func (hm *HotkeyManager) UpdateKeyBinding(id, newKeyBinding string) error {
 		return fmt.Errorf("shortcut with id '%s' not found", id)
 	}
 
-	newShortcut, err := hm.parseKeyBinding(newKeyBinding)
+	partsNew := strings.Split(newKeyBinding, " ")
+	newShortcut, err := hm.parseKeyBinding(partsNew[0])
 	if err != nil {
 		return fmt.Errorf("invalid key binding: %v", err)
 	}
 
 	// Удаляем старую привязку
-	oldKeyBinding := hm.shortcutToString(shortcut.Shortcut)
+	oldKeyBinding := shortcut.KeyBinding
 	delete(hm.contextShortcuts[shortcut.Context], oldKeyBinding)
+
+	partsOld := strings.Split(oldKeyBinding, " ")
+	if len(partsOld) == 1 && (shortcut.Context == ContextGlobal || shortcut.Context == ContextEditor) {
+		hm.window.Canvas().RemoveShortcut(shortcut.Shortcut)
+	}
 
 	// Добавляем новую
 	shortcut.Shortcut = newShortcut
+	shortcut.KeyBinding = newKeyBinding
 	hm.contextShortcuts[shortcut.Context][newKeyBinding] = shortcut
 
 	// Обновляем в Fyne
-	if shortcut.Context == ContextGlobal || shortcut.Context == ContextEditor {
-		hm.window.Canvas().RemoveShortcut(shortcut.Shortcut)
+	if len(partsNew) == 1 && (shortcut.Context == ContextGlobal || shortcut.Context == ContextEditor) {
+		hm.window.Canvas().AddShortcut(newShortcut, hm.createShortcutHandler(shortcut))
 		hm.window.Canvas().AddShortcut(newShortcut, hm.createShortcutHandler(shortcut))
 	}
 

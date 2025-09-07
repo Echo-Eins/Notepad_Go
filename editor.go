@@ -1204,8 +1204,11 @@ func (e *EditorWidget) applyTokensToRichText() {
 		index += len(token.Value)
 	}
 
-	e.richContent.Segments = segments
-	e.richContent.Refresh()
+	// Обновление содержимого RichText должно выполняться в главном потоке UI
+	fyne.Do(func() {
+		e.richContent.Segments = segments
+		e.richContent.Refresh()
+	})
 }
 
 // getTokenColor возвращает цвет для типа токена

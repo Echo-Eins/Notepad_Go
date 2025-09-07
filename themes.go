@@ -196,21 +196,9 @@ func (t *DarkTheme) Font(style fyne.TextStyle) fyne.Resource {
 	return theme.DefaultTheme().Font(style)
 }
 
-// Icon возвращает иконки с поддержкой темной темы
+// Icon делегирует получение иконок базовой теме
 func (t *DarkTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
-	// Используем стандартные иконки, но можем кастомизировать
-	switch name {
-	case theme.IconNameFolder:
-		return theme.FolderIcon()
-	case theme.IconNameFile:
-		return theme.DocumentIcon()
-	case theme.IconNameComputer:
-		return theme.ComputerIcon()
-	case theme.IconNameStorage:
-		return theme.StorageIcon()
-	default:
-		return theme.DefaultTheme().Icon(name)
-	}
+	return theme.DefaultTheme().Icon(name)
 }
 
 // Size возвращает размеры элементов в стиле Windows 11

@@ -499,8 +499,12 @@ func (s *SidebarWidget) applyFilterAndSearch() {
 	}
 
 	if s.fileTree != nil {
-		s.fileTree.Refresh()
+		// Обновление интерфейса должно выполняться в главном UI потоке
+		fyne.Do(func() {
+			s.fileTree.Refresh()
+		})
 	}
+
 	s.updateSearchResults()
 }
 
@@ -774,11 +778,8 @@ func (s *SidebarWidget) refreshDirectory(path string) {
 	node.IsLoaded = false
 	s.loadDirectoryChildren(node)
 
-	// Обновляем UI в main thread
-	go func() {
-		s.fileTree.Refresh()
-		s.applyFilterAndSearch()
-	}()
+	// Обновляем отображение
+	s.applyFilterAndSearch()
 }
 
 // Navigation methods
@@ -1214,7 +1215,9 @@ func (s *SidebarWidget) isHiddenFile(name string) bool {
 // updateStatus обновляет статусную строку
 func (s *SidebarWidget) updateStatus(message string) {
 	if s.statusLabel != nil {
-		s.statusLabel.SetText(message)
+		fyne.Do(func() {
+			s.statusLabel.SetText(message)
+		})
 	}
 }
 
