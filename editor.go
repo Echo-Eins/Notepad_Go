@@ -31,7 +31,7 @@ type EditorWidget struct {
 	richContent     *widget.RichText // Для отображения с подсветкой
 	lineNumbers     *widget.List
 	scrollContainer *container.Scroll
-	mainContainer   fyne.Container // Изменено с container.Border на fyne.Container
+	mainContainer   *fyne.Container // Изменено с container.Border на *fyne.Container
 
 	// Конфигурация
 	config *Config
@@ -355,9 +355,9 @@ func (e *EditorWidget) bindEvents() {
 		e.onTextChanged()
 	}
 
-	// Обработчик курсора
-	if cursorEntry, ok := e.content.(interface{ OnCursorChanged func() }); ok {
-		cursorEntry.OnCursorChanged = func() {
+	// Обработчик изменения позиции курсора
+	if entry, ok := e.content.(*widget.Entry); ok {
+		entry.OnCursorChanged = func() {
 			// Обновляем позицию курсора
 			e.updateCursorPosition()
 		}
@@ -370,6 +370,17 @@ func (e *EditorWidget) bindEvents() {
 
 	// Добавляем обработку правого клика через расширение
 	e.ExtendBaseWidget(e)
+}
+
+// updateCursorPosition обновляет внутреннее состояние позиции курсора
+func (e *EditorWidget) updateCursorPosition() {
+	if entry, ok := e.content.(*widget.Entry); ok {
+		e.cursorRow = entry.CursorRow
+		e.cursorCol = entry.CursorColumn
+		if e.onCursorChanged != nil {
+			e.onCursorChanged(e.cursorRow, e.cursorCol)
+		}
+	}
 }
 
 // resetAutoSaveTimer сбрасывает таймер автосохранения
@@ -485,8 +496,6 @@ func (e *EditorWidget) GetCursorPosition() TextPosition {
 		Col: e.cursorCol,
 	}
 }
-
-
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (e *EditorWidget) applySyntaxHighlighting() {
@@ -1105,7 +1114,7 @@ func (e *EditorWidget) CreateRenderer() fyne.WidgetRenderer {
 }
 
 // Методы для внешнего API
-func (e *EditorWidget) GetContent() string { return e.textContent }
+func (e *EditorWidget) GetContent() string  { return e.textContent }
 func (e *EditorWidget) GetFilePath() string { return e.filePath }
 func (e *EditorWidget) GetFileName() string { return e.fileName }
 

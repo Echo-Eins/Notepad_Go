@@ -323,8 +323,8 @@ func (s *SidebarWidget) treeCreateNode(branch bool) fyne.CanvasObject {
 		icon.SetResource(theme.FolderIcon())
 	}
 
-	container := container.NewHBox(icon, label)
-	return container
+	nodeContainer := container.NewHBox(icon, label)
+	return nodeContainer
 }
 
 // treeUpdateNode обновляет виджет узла
@@ -334,9 +334,9 @@ func (s *SidebarWidget) treeUpdateNode(uid string, branch bool, node fyne.Canvas
 		return
 	}
 
-	container := node.(*fyne.Container) // вместо *container.HBox
-	icon := container.Objects[0].(*widget.Icon)
-	label := container.Objects[1].(*widget.Label)
+	nodeContainer := node.(*fyne.Container) // вместо *container.HBox
+	icon := nodeContainer.Objects[0].(*widget.Icon)
+	label := nodeContainer.Objects[1].(*widget.Label)
 
 	// Устанавливаем иконку
 	icon.SetResource(s.getNodeIcon(fileNode))
