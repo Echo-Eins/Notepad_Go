@@ -164,9 +164,9 @@ func (tm *TerminalManager) startTerminalProcess(terminal *TerminalInstance) erro
 
 	switch terminal.Type {
 	case TerminalCMD:
-		cmd = exec.Command("cmd.exe")
+		cmd = exec.Command("cmd.exe", "/K", "chcp 65001 >nul && prompt $P$G")
 	case TerminalPowerShell:
-		cmd = exec.Command("powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "chcp 65001")
+		cmd = exec.Command("powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "chcp 65001; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [Console]::OutputEncoding")
 	case TerminalBash:
 		if runtime.GOOS == "windows" {
 			// Пытаемся найти Git Bash или WSL

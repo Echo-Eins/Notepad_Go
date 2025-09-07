@@ -427,6 +427,13 @@ type ConfigManager struct {
 	watcherCancel   context.CancelFunc
 	changeCallbacks []func(*Config)
 	isLoaded        bool
+
+	saveCh chan saveRequest
+	saveWg sync.WaitGroup
+}
+
+type saveRequest struct {
+	errCh chan error
 }
 
 // Валидация настроек
@@ -823,8 +830,28 @@ func NewConfigManager(configPath string) *ConfigManager {
 		configPath:      configPath,
 		changeCallbacks: []func(*Config){},
 	}
+	manager.startSaveWorker()
 
 	return manager
+}
+
+func (cm *ConfigManager) startSaveWorker() {
+	cm.saveCh = make(chan saveRequest, 1)
+	cm.saveWg.Add(1)
+	go func() {
+		defer cm.saveWg.Done()
+		for req := range cm.saveCh {
+			cm.mutex.Lock()
+			err := cm.saveConfigUnsafe()
+			cm.mutex.Unlock()
+			if req.errCh != nil {
+				req.errCh <- err
+				close(req.errCh)
+			} else if err != nil {
+				fmt.Printf("Error saving config: %v\n", err)
+			}
+		}
+	}()
 }
 
 // LoadConfig загружает настройки из файла
@@ -885,12 +912,26 @@ func (cm *ConfigManager) LoadConfig() (*Config, error) {
 	return cm.config, nil
 }
 
-// SaveConfig сохраняет настройки в файл
+// SaveConfig сохраняет настройки синхронно через воркер
 func (cm *ConfigManager) SaveConfig() error {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
+	if cm.saveCh == nil {
+		return fmt.Errorf("save worker not started")
+	}
+	errCh := make(chan error, 1)
+	cm.saveCh <- saveRequest{errCh: errCh}
+	return <-errCh
+}
 
-	return cm.saveConfigUnsafe()
+// SaveConfigAsync ставит запрос на сохранение в очередь
+func (cm *ConfigManager) SaveConfigAsync() {
+	if cm.saveCh == nil {
+		return
+	}
+	select {
+	case cm.saveCh <- saveRequest{}:
+	default:
+		// если запрос уже в очереди, не блокируемся
+	}
 }
 
 // saveConfigUnsafe внутренний метод сохранения (без блокировки)
@@ -1867,6 +1908,11 @@ func contains(slice []string, item string) bool {
 // Cleanup очищает ресурсы менеджера настроек
 func (cm *ConfigManager) Cleanup() {
 	cm.stopWatching()
+
+	if cm.saveCh != nil {
+		close(cm.saveCh)
+		cm.saveWg.Wait()
+	}
 }
 
 // Экспортируемые функции для удобства

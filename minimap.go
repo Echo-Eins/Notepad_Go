@@ -291,7 +291,9 @@ func (m *MinimapWidget) startUpdateWorker() {
 
 			case <-ticker.C:
 				if m.needsRedraw && !m.isRendering {
-					m.redrawMinimap()
+					fyne.Do(func() {
+						m.redrawMinimap()
+					})
 				}
 			}
 		}
@@ -983,13 +985,17 @@ func (v *ViewportIndicator) updatePosition(x, y, width, height float32) {
 	v.width = width
 	v.height = height
 
-	v.Refresh()
+	fyne.Do(func() {
+		v.Refresh()
+	})
 }
 
 // setVisible устанавливает видимость viewport
 func (v *ViewportIndicator) setVisible(visible bool) {
 	v.isVisible = visible
-	v.Refresh()
+	fyne.Do(func() {
+		v.Refresh()
+	})
 }
 
 // CreateRenderer для ViewportIndicator

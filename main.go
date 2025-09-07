@@ -215,14 +215,14 @@ func (a *App) createMainLayout() {
 
 	// Основной контент с редактором и миниатюрой
 	var editorContent fyne.CanvasObject
-	if a.config.Minimap.IsVisible {
+	if a.minimap != nil && a.minimap.IsVisible() {
 		editorContent = container.NewBorder(nil, nil, nil, a.minimap, a.editor)
 	} else {
 		editorContent = a.editor
 	}
 
 	// Добавляем боковую панель если видима
-	if a.config.Sidebar.IsVisible {
+	if a.sidebar != nil && a.sidebar.IsVisible() {
 		a.mainContent = container.NewBorder(topContainer, statusBarContainer, a.sidebar, nil, editorContent)
 	} else {
 		a.mainContent = container.NewBorder(topContainer, statusBarContainer, nil, nil, editorContent)
@@ -835,7 +835,7 @@ func (a *App) toggleSidebar() {
 	a.createMainLayout()
 
 	// Сохраняем настройки
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 }
 
 func (a *App) toggleMinimap() {
@@ -851,7 +851,7 @@ func (a *App) toggleMinimap() {
 	a.createMainLayout()
 
 	// Сохраняем настройки
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 }
 
 func (a *App) showCommandPalette() {
@@ -912,7 +912,7 @@ func (a *App) zoomIn() {
 
 	// Применяем размер шрифта к редактору
 	a.applyFontSize()
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 }
 
 func (a *App) zoomOut() {
@@ -927,7 +927,7 @@ func (a *App) zoomOut() {
 
 	// Применяем размер шрифта к редактору
 	a.applyFontSize()
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 }
 
 func (a *App) resetZoom() {
@@ -939,7 +939,7 @@ func (a *App) resetZoom() {
 
 	// Применяем размер шрифта к редактору
 	a.applyFontSize()
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 }
 
 // Tool operations - Полная реализация
@@ -1359,7 +1359,7 @@ func (a *App) addToRecentFiles(filepath string) {
 
 	// Сохраняем в конфигурации
 	a.config.App.LastOpenedFiles = a.recentFiles
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 }
 
 func (a *App) applyConfigChanges() {
@@ -1419,7 +1419,7 @@ func (a *App) cleanup() {
 	size := a.mainWin.Canvas().Size()
 	a.config.App.WindowWidth = int(size.Width)
 	a.config.App.WindowHeight = int(size.Height)
-	a.configManager.SaveConfig()
+	a.configManager.SaveConfigAsync()
 
 	// Закрываем все терминалы
 	if a.terminalMgr != nil {
@@ -1767,7 +1767,7 @@ func (a *App) applyFontSize() {
 
 	// Обновляем номера строк
 	if a.editor.lineNumbers != nil {
-		a.editor.lineNumbers.Refresh()
+		a.editor.updateLineNumbers()
 	}
 }
 
@@ -1775,7 +1775,9 @@ func (a *App) updateStatusBar(row, col int) {
 	if a.statusBar != nil && a.editor != nil {
 		totalLines := a.editor.getLineCount()
 		status := fmt.Sprintf("Line %d, Column %d | Total Lines: %d", row+1, col+1, totalLines)
-		a.statusBar.SetText(status)
+		fyne.Do(func() {
+			a.statusBar.SetText(status)
+		})
 	}
 }
 

@@ -36,7 +36,7 @@ type EditorWidget struct {
 	// Основные компоненты
 	content         *widget.Entry    // Изменено с RichText на Entry для редактирования
 	richContent     *widget.RichText // Для отображения с подсветкой
-	lineNumbers     *widget.List
+	lineNumbers     *widget.TextGrid
 	scrollContainer *container.Scroll
 	mainContainer   *fyne.Container // Изменено с container.Border на *fyne.Container
 
@@ -208,7 +208,7 @@ func (e *EditorWidget) AddBookmark(line int, name string) {
 		e.bookmarks = make(map[int]Bookmark)
 	}
 	e.bookmarks[line] = Bookmark{Line: line, Name: name}
-	e.lineNumbers.Refresh()
+	e.updateLineNumbers()
 	if e.onBookmarksChanged != nil {
 		e.onBookmarksChanged()
 	}
@@ -220,7 +220,7 @@ func (e *EditorWidget) RemoveBookmark(line int) {
 		return
 	}
 	delete(e.bookmarks, line)
-	e.lineNumbers.Refresh()
+	e.updateLineNumbers()
 	if e.onBookmarksChanged != nil {
 		e.onBookmarksChanged()
 	}
@@ -256,6 +256,38 @@ func (e *EditorWidget) getLineCount() int {
 		return 1
 	}
 	return len(strings.Split(e.textContent, "\n"))
+}
+
+// updateLineNumbers пересчитывает и обновляет виджет номеров строк
+func (e *EditorWidget) updateLineNumbers() {
+	if e.lineNumbers == nil {
+		return
+	}
+
+	lines := e.getLineCount()
+	digits := len(fmt.Sprintf("%d", lines))
+	var b strings.Builder
+	for i := 1; i <= lines; i++ {
+		if i > 1 {
+			b.WriteRune('\n')
+		}
+		marker := "  "
+		if e.IsLineBookmarked(i) {
+			marker = "★ "
+		}
+		b.WriteString(fmt.Sprintf("%s%*d", marker, digits, i))
+	}
+
+	e.lineNumbers.SetText(b.String())
+	for i := 0; i < lines; i++ {
+		lineNum := i + 1
+		style := &widget.CustomTextGridStyle{FGColor: theme.ForegroundColor()}
+		if lineNum == e.cursorRow+1 {
+			style.BGColor = theme.SelectionColor()
+		}
+		e.lineNumbers.SetRowStyle(i, style)
+	}
+	e.lineNumbers.Refresh()
 }
 
 // setupSyntaxHighlighter настраивает подсветку синтаксиса
@@ -383,33 +415,10 @@ func (e *EditorWidget) setupComponents() {
 	// Создаем RichText для отображения с подсветкой
 	e.richContent = widget.NewRichText()
 
-	// Создаем список номеров строк
-	e.lineNumbers = widget.NewList(
-		func() int { return e.getLineCount() },
-		func() fyne.CanvasObject {
-			label := widget.NewLabel("1")
-			label.Alignment = fyne.TextAlignTrailing
-			return label
-		},
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			label := obj.(*widget.Label)
-			lineNum := id + 1
-			marker := ""
-			if e.IsLineBookmarked(lineNum) {
-				marker = "★ "
-			}
-			label.SetText(fmt.Sprintf("%s%d", marker, lineNum))
-
-			// Подсветка текущей строки
-			if lineNum == e.cursorRow+1 {
-				label.Importance = widget.HighImportance
-			} else {
-				label.Importance = widget.MediumImportance
-			}
-		},
-	)
-
-	// Настраиваем размеры
+	// Создаем виджет номеров строк
+	e.lineNumbers = widget.NewTextGrid()
+	e.lineNumbers.Scroll = fyne.ScrollNone
+	e.updateLineNumbers()
 	e.lineNumbers.Resize(fyne.NewSize(60, 0))
 
 	// Создаем контейнер с прокруткой
@@ -508,6 +517,7 @@ func (e *EditorWidget) updateCursorPosition() {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
 	e.highlightWordAtCursor()
+	e.updateLineNumbers()
 }
 
 // getWordAtCursor возвращает слово под текущим курсором
@@ -682,11 +692,13 @@ func (e *EditorWidget) updateDisplay() {
 	// Обновляем отступы
 	e.updateIndentGuides()
 
-	// Обновляем номера строк
-	e.lineNumbers.Refresh()
-
-	// Обновляем содержимое
-	e.content.Refresh()
+	// Обновляем номера строк и содержимое в главном потоке UI
+	fyne.Do(func() {
+		if e.lineNumbers != nil {
+			e.updateLineNumbers()
+		}
+		e.content.Refresh()
+	})
 }
 
 // Дополнительные методы для поддержки HotkeyManager
@@ -1146,7 +1158,9 @@ func (e *EditorWidget) SetVimMode(mode VimMode) {
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (e *EditorWidget) applySyntaxHighlighting() {
 	// Всегда синхронизируем Entry с текущим текстом
-	e.content.SetText(e.textContent)
+	fyne.Do(func() {
+		e.content.SetText(e.textContent)
+	})
 
 	if e.lexer == nil {
 		return
