@@ -1902,7 +1902,7 @@ func (hm *HotkeyManager) actionFormatSelection(context HotkeyContext) bool {
 
 	// Форматируем выделение
 	language := hm.app.editor.GetLanguage()
-	formatted, err := formatCode(selectedText, language)
+	formatted, err := formatCode(selectedText, language, hm.app.config)
 	if err != nil {
 		dialog.ShowError(err, hm.window)
 		return false

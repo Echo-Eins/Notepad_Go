@@ -578,11 +578,45 @@ func (e *EditorWidget) handleAutoIndent() {
 	line := e.GetCurrentLine()
 	indent := e.getIndentSpaces(line)
 	trimmed := strings.TrimSpace(line)
-	if strings.HasSuffix(trimmed, "{") {
-		indent += 4
+	indentSize := 4
+	if e.config != nil && e.config.Editor.IndentSize > 0 {
+		indentSize = e.config.Editor.IndentSize
 	}
-	if strings.HasPrefix(trimmed, "}") && indent >= 4 {
-		indent -= 4
+	if e.config != nil && e.config.Editor.SmartIndent {
+		switch e.language {
+		case "python":
+			if strings.HasSuffix(trimmed, ":") {
+				indent += indentSize
+			}
+		case "html", "xml":
+			if strings.HasPrefix(trimmed, "</") && indent >= indentSize {
+				indent -= indentSize
+			}
+			if strings.HasPrefix(trimmed, "<") &&
+				!strings.HasPrefix(trimmed, "</") &&
+				!strings.HasSuffix(trimmed, "/>") {
+				indent += indentSize
+			}
+		default:
+			if strings.HasSuffix(trimmed, "{") ||
+				strings.HasSuffix(trimmed, "(") ||
+				strings.HasSuffix(trimmed, "[") {
+				indent += indentSize
+			}
+			if (strings.HasPrefix(trimmed, "}") ||
+				strings.HasPrefix(trimmed, ")") ||
+				strings.HasPrefix(trimmed, "]")) && indent >= indentSize {
+				indent -= indentSize
+			}
+		}
+	} else {
+		if strings.HasSuffix(trimmed, "{") {
+			indent += indentSize
+		}
+		if strings.HasPrefix(trimmed, "}") && indent >= indentSize {
+			indent -= indentSize
+		}
+
 	}
 	e.content.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
 	for i := 0; i < indent; i++ {
@@ -1289,6 +1323,17 @@ func (e *EditorWidget) applySyntaxHighlighting() {
 		e.content.SetText(e.textContent)
 	})
 
+	if e.config != nil && !e.config.Editor.SyntaxHighlighting {
+		e.syntaxTokens = nil
+		fyne.Do(func() {
+			e.richContent.Segments = []widget.RichTextSegment{
+				&widget.TextSegment{Text: e.textContent},
+			}
+			e.richContent.Refresh()
+		})
+		return
+	}
+
 	if e.lexer == nil {
 		return
 	}
@@ -1296,7 +1341,8 @@ func (e *EditorWidget) applySyntaxHighlighting() {
 	// Проверяем кэш
 	cacheKey := fmt.Sprintf("%s_%d", e.filePath, len(e.textContent))
 	if tokens, exists := e.syntaxCache[cacheKey]; exists {
-		e.syntaxTokens = tokens
+		// Создаем копию, чтобы не модифицировать кэш при изменении настроек
+		e.syntaxTokens = append([]chroma.Token(nil), tokens...)
 	} else {
 		// Токенизируем код
 		iterator, err := e.lexer.Tokenise(nil, e.textContent)
@@ -1304,8 +1350,9 @@ func (e *EditorWidget) applySyntaxHighlighting() {
 			return
 		}
 
-		e.syntaxTokens = iterator.Tokens()
-		e.syntaxCache[cacheKey] = e.syntaxTokens
+		tokens := iterator.Tokens()
+		e.syntaxTokens = append([]chroma.Token(nil), tokens...)
+		e.syntaxCache[cacheKey] = tokens
 
 		// Ограничиваем размер кэша
 		if len(e.syntaxCache) > 100 {
@@ -1313,6 +1360,15 @@ func (e *EditorWidget) applySyntaxHighlighting() {
 			for k := range e.syntaxCache {
 				delete(e.syntaxCache, k)
 				break
+			}
+		}
+	}
+
+	// Отключаем подсветку переменных, если это указано в настройках
+	if e.config != nil && !e.config.Editor.VariableHighlight {
+		for i, token := range e.syntaxTokens {
+			if token.Type == chroma.NameVariable || token.Type.InSubCategory(chroma.NameVariable) {
+				e.syntaxTokens[i].Type = chroma.Name
 			}
 		}
 	}
@@ -1357,15 +1413,22 @@ func (e *EditorWidget) applyTokensToRichText() {
 // getTokenColor возвращает цвет для типа токена
 func (e *EditorWidget) getTokenColor(tokenType chroma.TokenType) fyne.ThemeColorName {
 	switch {
-	case tokenType.InCategory(chroma.Keyword):
+	case tokenType.InCategory(chroma.Keyword) || tokenType.InSubCategory(chroma.Keyword):
 		return theme.ColorNamePrimary
-	case tokenType.InCategory(chroma.String):
+	case tokenType.InCategory(chroma.String) || tokenType.InSubCategory(chroma.String):
 		return theme.ColorNameSuccess
-	case tokenType.InCategory(chroma.Comment):
+	case tokenType.InCategory(chroma.Comment) || tokenType.InSubCategory(chroma.Comment):
 		return theme.ColorNameDisabled
-	case tokenType.InCategory(chroma.LiteralNumber), tokenType.InCategory(chroma.Number):
+	case tokenType.InCategory(chroma.LiteralNumber) || tokenType.InCategory(chroma.Number) || tokenType.InSubCategory(chroma.Number):
 		return theme.ColorNameWarning
-	case tokenType.InCategory(chroma.Name):
+	case tokenType == chroma.NameFunction || tokenType.InSubCategory(chroma.NameFunction):
+		return theme.ColorNamePrimary
+	case tokenType == chroma.NameVariable || tokenType.InSubCategory(chroma.NameVariable):
+		return theme.ColorNameWarning
+	case tokenType == chroma.NameClass || tokenType.InSubCategory(chroma.NameClass) ||
+		tokenType == chroma.NameType || tokenType.InSubCategory(chroma.NameType):
+		return theme.ColorNameSuccess
+	case tokenType.InCategory(chroma.Name) || tokenType.InSubCategory(chroma.Name):
 		return theme.ColorNameForeground
 	default:
 		return theme.ColorNameForeground

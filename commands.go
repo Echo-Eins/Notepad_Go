@@ -240,7 +240,7 @@ func (c *FormatCodeCommand) Execute(editor *EditorWidget) error {
 	c.oldText = editor.textContent
 
 	// Форматируем в зависимости от языка
-	formattedText, err := formatCode(editor.textContent, c.language)
+	formattedText, err := formatCode(editor.textContent, c.language, editor.config)
 	if err != nil {
 		return err
 	}
@@ -261,14 +261,14 @@ func (c *FormatCodeCommand) GetDescription() string {
 }
 
 // formatCode форматирует код в зависимости от языка
-func formatCode(code, language string) (string, error) {
+func formatCode(code, language string, cfg *Config) (string, error) {
 	switch strings.ToLower(language) {
 	case "go":
 		// Форматируем Go-код через стандартный пакет go/format, чтобы
-		// не зависеть от наличия внешней утилиты gofmt в системе.
+		// не зависеть от наличия внешней утилиты.
 		formatted, err := format.Source([]byte(code))
 		if err != nil {
-			return "", fmt.Errorf("gofmt failed: %w", err)
+			return "", fmt.Errorf("format failed: %w", err)
 		}
 		return string(formatted), nil
 	case "python":
