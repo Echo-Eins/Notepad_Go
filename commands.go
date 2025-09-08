@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"go/format"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
@@ -262,8 +264,13 @@ func (c *FormatCodeCommand) GetDescription() string {
 func formatCode(code, language string) (string, error) {
 	switch strings.ToLower(language) {
 	case "go":
-		// Используем gofmt, читая код из stdin и получая форматированный код из stdout
-		return runFormatter("gofmt", nil, code)
+		// Форматируем Go-код через стандартный пакет go/format, чтобы
+		// не зависеть от наличия внешней утилиты gofmt в системе.
+		formatted, err := format.Source([]byte(code))
+		if err != nil {
+			return "", fmt.Errorf("gofmt failed: %w", err)
+		}
+		return string(formatted), nil
 	case "python":
 		// Пытаемся использовать black, если он недоступен - пробуем autopep8
 		if formatted, err := runFormatter("black", []string{"--quiet", "-"}, code); err == nil {

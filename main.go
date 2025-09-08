@@ -1049,17 +1049,30 @@ func (a *App) lintCode() {
 	command := strings.Join(cmdParts, " ")
 	output, err := a.terminalMgr.RunCommand(command, filepath.Dir(a.currentFile))
 
-	if err != nil && strings.TrimSpace(output) == "" {
-		dialog.ShowError(fmt.Errorf("Failed to run linter: %v", err), a.mainWin)
-		return
+	if err != nil {
+		if strings.TrimSpace(output) == "" {
+			dialog.ShowError(fmt.Errorf("failed to run linter: %v", err), a.mainWin)
+			return
+		}
+		// Продолжаем парсить вывод, даже если линтер завершился с ошибкой,
+		// так как многие линтеры возвращают ненулевой код при найденных
+		// проблемах.
 	}
 
-	// Парсим ошибки
 	analyzer := NewCodeAnalyzer()
+	if linterConfig.ErrorPattern != "" {
+		// Переопределяем паттерн ошибок на пользовательский из конфигурации
+		_ = analyzer.matcher.AddPattern(language+"_error", linterConfig.ErrorPattern,
+			"custom linter error", []string{"file", "line", "column", "message"})
+	}
 	errors := analyzer.FindErrors(output, language)
 
 	if len(errors) == 0 {
-		dialog.ShowInformation("Lint", "No issues found!", a.mainWin)
+		msg := strings.TrimSpace(output)
+		if msg == "" {
+			msg = "No issues found!"
+		}
+		dialog.ShowInformation("Lint", msg, a.mainWin)
 		a.editor.ClearLintErrors()
 	} else {
 		a.editor.SetLintErrors(errors)

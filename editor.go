@@ -137,8 +137,30 @@ type Bookmark struct {
 // MeasureString is a helper that calculates the size of a string using the
 // current theme text size and a default text style. Fyne removed MeasureString
 // in v2, so this wrapper uses MeasureText with an empty style.
+var (
+	measureCache = struct {
+		sync.RWMutex
+		values map[string]fyne.Size
+	}{values: make(map[string]fyne.Size)}
+)
+
+// MeasureString calculates size of the given text using Fyne's MeasureText.
+// It caches results as this function is called frequently during layout and
+// measuring can be expensive for repeated strings.
 func MeasureString(text string, size float32) fyne.Size {
-	return fyne.MeasureText(text, size, fyne.TextStyle{})
+	key := fmt.Sprintf("%s:%f", text, size)
+	measureCache.RLock()
+	if v, ok := measureCache.values[key]; ok {
+		measureCache.RUnlock()
+		return v
+	}
+	measureCache.RUnlock()
+
+	measured := fyne.MeasureText(text, size, fyne.TextStyle{})
+	measureCache.Lock()
+	measureCache.values[key] = measured
+	measureCache.Unlock()
+	return measured
 }
 
 // IsDirty возвращает true, если есть несохраненные изменения
