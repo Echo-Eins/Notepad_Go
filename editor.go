@@ -1426,7 +1426,7 @@ func (e *EditorWidget) getTokenColor(tokenType chroma.TokenType) fyne.ThemeColor
 	case tokenType == chroma.NameVariable || tokenType.InSubCategory(chroma.NameVariable):
 		return theme.ColorNameWarning
 	case tokenType == chroma.NameClass || tokenType.InSubCategory(chroma.NameClass) ||
-		tokenType == chroma.NameType || tokenType.InSubCategory(chroma.NameType):
+		tokenType == chroma.KeywordType || tokenType.InSubCategory(chroma.KeywordType):
 		return theme.ColorNameSuccess
 	case tokenType.InCategory(chroma.Name) || tokenType.InSubCategory(chroma.Name):
 		return theme.ColorNameForeground
