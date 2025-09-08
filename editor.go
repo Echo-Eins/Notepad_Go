@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/alecthomas/chroma/v2"
@@ -22,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -29,6 +31,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unsafe"
 )
 
 // EditorWidget - основной виджет редактора с полным функционалом
@@ -467,6 +470,7 @@ func (e *EditorWidget) setupComponents() {
 	// Создаем основной текстовый виджет (Entry для редактирования)
 	e.content = widget.NewMultiLineEntry()
 	e.content.Wrapping = fyne.TextWrapWord
+	configureEntryOverlay(e.content)
 
 	// Настраиваем поведение в зависимости от WordWrap
 	if e.config.Editor.WordWrap { // Исправлено: config.Editor.WordWrap
@@ -489,7 +493,9 @@ func (e *EditorWidget) setupComponents() {
 	e.indentContainer = container.NewWithoutLayout()
 
 	// Создаем контейнер с прокруткой
-	editorLayer := container.NewMax(e.content, e.indentContainer, e.richContent)
+	// Размещаем RichText под Entry, чтобы цветная разметка
+	// не перекрывала курсор и выделение текста.
+	editorLayer := container.NewStack(e.richContent, e.content, e.indentContainer) // editorLayer := container.NewMax(e.content, e.indentContainer, e.richContent)
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
 		editorContent = container.NewBorder(nil, nil, container.NewVBox(e.lineNumbers), nil, editorLayer)
@@ -502,6 +508,47 @@ func (e *EditorWidget) setupComponents() {
 
 	// Основной контейнер
 	e.mainContainer = container.NewMax(e.scrollContainer) // Используем container.NewMax вместо Border
+}
+
+// configureEntryOverlay скрывает фон и текст стандартного Entry,
+// оставляя только курсор и прямоугольники выделения.
+func configureEntryOverlay(entry *widget.Entry) {
+	r := test.WidgetRenderer(entry)
+	rv := reflect.ValueOf(r).Elem()
+
+	hideRect := func(name string) {
+		f := rv.FieldByName(name)
+		if !f.IsValid() {
+			return
+		}
+		rect := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem().Interface().(*canvas.Rectangle)
+		rect.Hide()
+	}
+
+	hideRect("box")
+	hideRect("border")
+	hideEntryText(entry)
+}
+
+// hideEntryText делает текст и плейсхолдер Entry полностью прозрачными.
+func hideEntryText(entry *widget.Entry) {
+	val := reflect.ValueOf(entry).Elem()
+
+	hideField := func(name string) {
+		f := val.FieldByName(name)
+		rt := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Interface().(*widget.RichText)
+		for _, seg := range rt.Segments {
+			if txt, ok := seg.(*widget.TextSegment); ok {
+				style := txt.Style
+				style.Color = color.Transparent
+				txt.Style = style
+			}
+		}
+		rt.Refresh()
+	}
+
+	hideField("text")
+	hideField("placeholder")
 }
 
 // setupAutoSave настраивает автосохранение
@@ -525,12 +572,14 @@ func (e *EditorWidget) bindEvents() {
 	e.content.OnChanged = func(text string) {
 		e.textContent = text
 		e.onTextChanged()
+		hideEntryText(e.content)
 	}
 
 	// Обработчик изменения позиции курсора
 	e.content.OnCursorChanged = func() {
 		// Обновляем позицию курсора
 		e.updateCursorPosition()
+		hideEntryText(e.content)
 	}
 
 	// Добавляем обработку кликов через расширение базового виджета
