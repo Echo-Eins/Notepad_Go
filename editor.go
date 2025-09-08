@@ -489,7 +489,7 @@ func (e *EditorWidget) setupComponents() {
 	e.indentContainer = container.NewWithoutLayout()
 
 	// Создаем контейнер с прокруткой
-	editorLayer := container.NewMax(e.richContent, e.indentContainer, e.content)
+	editorLayer := container.NewMax(e.content, e.indentContainer, e.richContent)
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
 		editorContent = container.NewBorder(nil, nil, container.NewVBox(e.lineNumbers), nil, editorLayer)
@@ -833,6 +833,7 @@ func (e *EditorWidget) updateDisplay() {
 			e.updateLineNumbers()
 		}
 		e.content.Refresh()
+		e.richContent.Refresh()
 	})
 }
 
