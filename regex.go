@@ -508,7 +508,19 @@ func NewParameterHintExtractor() *ParameterHintExtractor {
 
 // ExtractFunctionSignature извлекает сигнатуру функции
 func (phe *ParameterHintExtractor) ExtractFunctionSignature(line string, language string) *FunctionSignature {
-	// Паттерны для извлечения сигнатур функций
+	// Try AST-based extraction for supported languages first.
+	switch language {
+	case "go":
+		if sig := extractGoSignature(line); sig != nil {
+			return sig
+		}
+	case "python":
+		if sig := extractPythonSignature(line); sig != nil {
+			return sig
+		}
+	}
+
+	// Fallback to regex-based extraction.
 	patterns := map[string]string{
 		"go":     `(\w+)\s*\(([^)]*)\)(?:\s*(?:\(([^)]*)\)|\w+))?`,
 		"python": `(\w+)\s*\(([^)]*)\)`,

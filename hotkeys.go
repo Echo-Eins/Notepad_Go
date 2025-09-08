@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"io/ioutil"
+	"log"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
-
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver/desktop"
 )
 
 // HotkeyManager - менеджер горячих клавиш
@@ -480,7 +480,7 @@ func (hm *HotkeyManager) registerShortcut(id, keyBinding, actionName string, con
 
 	action, exists := hm.actions[actionName]
 	if !exists {
-		fmt.Printf("Warning: Action '%s' not found for shortcut '%s'\n", actionName, id)
+		log.Printf("Warning: Action '%s' not found for shortcut '%s'", actionName, id)
 		return
 	}
 
@@ -492,7 +492,7 @@ func (hm *HotkeyManager) registerShortcutWithAction(id, keyBinding string, actio
 	parts := strings.Split(keyBinding, " ")
 	shortcut, err := hm.parseKeyBinding(parts[0])
 	if err != nil {
-		fmt.Printf("Error parsing key binding '%s': %v\n", keyBinding, err)
+		log.Printf("Error parsing key binding '%s': %v", keyBinding, err)
 		return
 	}
 
@@ -1167,7 +1167,7 @@ func (hm *HotkeyManager) executeVimCommand(command string) {
 	case command == "vsplit":
 		hm.executeAction("split_vertical")
 	default:
-		fmt.Printf("Unknown vim command: %s\n", command)
+		log.Printf("Unknown vim command: %s", command)
 	}
 }
 
@@ -1288,7 +1288,7 @@ func (hm *HotkeyManager) handleFocusChanged(obj fyne.Focusable) {
 // onContextChanged вызывается при смене контекста
 func (hm *HotkeyManager) onContextChanged(oldContext, newContext HotkeyContext) {
 	if hm.debugMode {
-		fmt.Printf("Context changed: %s -> %s\n",
+		log.Printf("Context changed: %s -> %s",
 			hm.contextToString(oldContext),
 			hm.contextToString(newContext))
 	}

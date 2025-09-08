@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	_ "fyne.io/fyne/v2"
+	_ "fyne.io/fyne/v2/storage"
+	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
-
-	_ "fyne.io/fyne/v2"
-	_ "fyne.io/fyne/v2/storage"
-	"github.com/fsnotify/fsnotify"
 )
 
 // Config - главная структура настроек приложения
@@ -848,7 +848,7 @@ func (cm *ConfigManager) startSaveWorker() {
 				req.errCh <- err
 				close(req.errCh)
 			} else if err != nil {
-				fmt.Printf("Error saving config: %v\n", err)
+				log.Printf("Error saving config: %v", err)
 			}
 		}
 	}()
@@ -957,7 +957,7 @@ func (cm *ConfigManager) saveConfigUnsafe() error {
 	// Создаем backup старого файла
 	if err := cm.createBackup(); err != nil {
 		// Логируем ошибку, но не прерываем сохранение
-		fmt.Printf("Warning: cannot create config backup: %v\n", err)
+		log.Printf("Warning: cannot create config backup: %v", err)
 	}
 
 	// Записываем файл
@@ -1743,7 +1743,7 @@ func (cm *ConfigManager) startWatching() {
 	var err error
 	cm.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
-		fmt.Printf("Cannot create config file watcher: %v\n", err)
+		log.Printf("Cannot create config file watcher: %v", err)
 		return
 	}
 
@@ -1754,7 +1754,7 @@ func (cm *ConfigManager) startWatching() {
 
 	err = cm.watcher.Add(cm.configPath)
 	if err != nil {
-		fmt.Printf("Cannot watch config file: %v\n", err)
+		log.Printf("Cannot watch config file: %v", err)
 		cm.stopWatching()
 	}
 }
@@ -1790,7 +1790,7 @@ func (cm *ConfigManager) watcherWorker(ctx context.Context) {
 				return
 			}
 
-			fmt.Printf("Config file watcher error: %v\n", err)
+			log.Printf("Config file watcher error: %v", err)
 
 		case <-ctx.Done():
 			return
@@ -1806,7 +1806,7 @@ func (cm *ConfigManager) reloadConfig() {
 	// Загружаем новую конфигурацию
 	newConfig, err := cm.LoadConfig()
 	if err != nil {
-		fmt.Printf("Error reloading config: %v\n", err)
+		log.Printf("Error reloading config: %v", err)
 		return
 	}
 
@@ -1818,7 +1818,7 @@ func (cm *ConfigManager) reloadConfig() {
 	// Уведомляем о изменениях
 	cm.notifyCallbacks()
 
-	fmt.Println("Configuration reloaded successfully")
+	log.Println("Configuration reloaded successfully")
 }
 
 // Callback система

@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/lithammer/fuzzysearch/fuzzy"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -60,7 +61,7 @@ func NewApp() *App {
 	configMgr := NewConfigManager("")
 	config, err := configMgr.LoadConfig()
 	if err != nil {
-		fmt.Printf("Error loading config: %v\n", err)
+		log.Printf("Error loading config: %v", err)
 		config = DefaultConfig()
 	}
 
@@ -302,6 +303,38 @@ func (a *App) setupCallbacks() {
 		a.sidebar.SetCallbacks(
 			func(path string) { // onFileSelected
 				// Предпросмотр файла
+				info, err := os.Stat(path)
+				if err != nil || info.IsDir() {
+					return
+				}
+
+				file, err := os.Open(path)
+				if err != nil {
+					dialog.ShowError(err, a.mainWin)
+					return
+				}
+				defer file.Close()
+
+				scanner := bufio.NewScanner(file)
+				var builder strings.Builder
+				maxLines := 20
+				for i := 0; i < maxLines && scanner.Scan(); i++ {
+					builder.WriteString(scanner.Text())
+					builder.WriteByte('\n')
+				}
+				if err := scanner.Err(); err != nil {
+					dialog.ShowError(err, a.mainWin)
+					return
+				}
+
+				preview := widget.NewMultiLineEntry()
+				preview.SetText(builder.String())
+				preview.Disable()
+
+				content := container.NewScroll(preview)
+				previewDialog := dialog.NewCustom("Preview: "+filepath.Base(path), "Close", content, a.mainWin)
+				previewDialog.Resize(fyne.NewSize(600, 400))
+				previewDialog.Show()
 			},
 			func(path string) { // onFileOpened
 				a.loadFile(path)

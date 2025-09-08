@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/fsnotify/fsnotify"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 // FileWatcher наблюдает за изменениями файлов
@@ -270,7 +270,7 @@ func (fw *FileWatcher) processEvents() {
 				return
 			}
 
-			fmt.Printf("File watcher error: %v\n", err)
+			log.Printf("File watcher error: %v", err)
 
 		case <-fw.ctx.Done():
 			return

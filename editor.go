@@ -17,6 +17,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"image/color"
 	"io/ioutil"
+	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -1794,34 +1795,85 @@ func (e *EditorWidget) parseColors() {
 
 // parseFunctionsAndVariables парсит функции и переменные
 func (e *EditorWidget) parseFunctionsAndVariables() {
-	// Простые паттерны для функций (можно расширить)
-	funcRegex := regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+	// Паттерны для объявлений и вызовов функций
+	goDeclRegex := regexp.MustCompile(`\bfunc\s+(?:\([^)]*\)\s*)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+	pyDeclRegex := regexp.MustCompile(`\bdef\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+	callRegex := regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
 	lines := strings.Split(e.textContent, "\n")
 
 	for row, line := range lines {
-		matches := funcRegex.FindAllStringSubmatch(line, -1)
-		for _, match := range matches {
-			if len(match) > 1 {
-				funcName := match[1]
-				start := strings.Index(line, funcName)
+		// Проверяем объявления функций Go
+		if match := goDeclRegex.FindStringSubmatch(line); len(match) > 1 {
+			funcName := match[1]
+			start := strings.Index(line, funcName)
 
-				if start >= 0 {
-					clickable := ClickableRange{
-						Range: TextRange{
-							Start: TextPosition{Row: row, Col: start},
-							End:   TextPosition{Row: row, Col: start + len(funcName)},
-							Text:  funcName,
-						},
-						Type:    ClickableFunction,
-						Target:  funcName,
-						Tooltip: fmt.Sprintf("Go to function %s", funcName),
-						OnClick: func() {
-							e.goToDefinition(funcName)
-						},
-					}
-					e.clickableRanges = append(e.clickableRanges, clickable)
+			if start >= 0 {
+				clickable := ClickableRange{
+					Range: TextRange{
+						Start: TextPosition{Row: row, Col: start},
+						End:   TextPosition{Row: row, Col: start + len(funcName)},
+						Text:  funcName,
+					},
+					Type:    ClickableFunction,
+					Target:  funcName,
+					Tooltip: fmt.Sprintf("Go to function %s", funcName),
+					OnClick: func() {
+						e.goToDefinition(funcName)
+					},
 				}
+				e.clickableRanges = append(e.clickableRanges, clickable)
 			}
+			continue
+		}
+
+		// Проверяем объявления функций Python
+		if match := pyDeclRegex.FindStringSubmatch(line); len(match) > 1 {
+			funcName := match[1]
+			start := strings.Index(line, funcName)
+
+			if start >= 0 {
+				clickable := ClickableRange{
+					Range: TextRange{
+						Start: TextPosition{Row: row, Col: start},
+						End:   TextPosition{Row: row, Col: start + len(funcName)},
+						Text:  funcName,
+					},
+					Type:    ClickableFunction,
+					Target:  funcName,
+					Tooltip: fmt.Sprintf("Go to function %s", funcName),
+					OnClick: func() {
+						e.goToDefinition(funcName)
+					},
+				}
+				e.clickableRanges = append(e.clickableRanges, clickable)
+			}
+			continue
+		}
+
+		// Обрабатываем вызовы функций, исключая объявления
+		matches := callRegex.FindAllStringSubmatchIndex(line, -1)
+		for _, m := range matches {
+			funcName := line[m[2]:m[3]]
+			prefix := strings.TrimSpace(line[:m[2]])
+			if strings.HasSuffix(prefix, "func") || strings.HasSuffix(prefix, "def") {
+				continue
+			}
+
+			start := m[2]
+			clickable := ClickableRange{
+				Range: TextRange{
+					Start: TextPosition{Row: row, Col: start},
+					End:   TextPosition{Row: row, Col: start + len(funcName)},
+					Text:  funcName,
+				},
+				Type:    ClickableFunction,
+				Target:  funcName,
+				Tooltip: fmt.Sprintf("Go to function %s", funcName),
+				OnClick: func() {
+					e.goToDefinition(funcName)
+				},
+			}
+			e.clickableRanges = append(e.clickableRanges, clickable)
 		}
 	}
 }
@@ -1967,7 +2019,7 @@ func (e *EditorWidget) startFileWatcher() {
 				if !ok {
 					return
 				}
-				fmt.Printf("File watcher error: %v\n", err)
+				log.Printf("File watcher error: %v", err)
 
 			case <-ctx.Done():
 				return
@@ -1975,7 +2027,9 @@ func (e *EditorWidget) startFileWatcher() {
 		}
 	}()
 
-	e.fileWatcher.Add(e.filePath)
+	if err := e.fileWatcher.Add(e.filePath); err != nil {
+		log.Printf("Failed to add file to watcher: %v", err)
+	}
 }
 
 // stopFileWatcher останавливает наблюдение за файлом
