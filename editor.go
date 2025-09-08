@@ -536,15 +536,18 @@ func hideEntryText(entry *widget.Entry) {
 
 	hideField := func(name string) {
 		f := val.FieldByName(name)
+		if !f.IsValid() {
+			return
+		}
 		rt := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Interface().(*widget.RichText)
-		for _, seg := range rt.Segments {
-			if txt, ok := seg.(*widget.TextSegment); ok {
-				style := txt.Style
-				style.Color = color.Transparent
-				txt.Style = style
+		rt.Refresh()
+		r := test.WidgetRenderer(rt)
+		for _, obj := range r.Objects() {
+			if txt, ok := obj.(*canvas.Text); ok {
+				txt.Color = color.Transparent
+				txt.Refresh()
 			}
 		}
-		rt.Refresh()
 	}
 
 	hideField("text")
@@ -764,10 +767,13 @@ func (e *EditorWidget) highlightWordAtCursor() {
 	if e.highlightTimer != nil {
 		e.highlightTimer.Stop()
 	}
-	e.highlightTimer = time.AfterFunc(2*time.Second, func() {
-		e.searchResults = nil
-		e.applyTokensToRichText()
-	})
+	duration := time.Duration(e.config.Editor.WordHighlightDuration) * time.Second
+	if e.config.Editor.WordHighlightDuration > 0 {
+		e.highlightTimer = time.AfterFunc(duration, func() {
+			e.searchResults = nil
+			e.applyTokensToRichText()
+		})
+	}
 }
 
 // indexToPosition преобразует индекс в позицию текста

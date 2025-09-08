@@ -183,20 +183,35 @@ type ViewportRenderer struct {
 
 // NewMinimap создает новую миниатюрную карту кода
 func NewMinimap(editor *EditorWidget) *MinimapWidget {
+
+	scale := float32(0.25)
+	fontSize := editor.config.Editor.FontSize * scale
+	if editor.config != nil && editor.config.Minimap.FontSize > 0 {
+		fontSize = editor.config.Minimap.FontSize
+	}
+	lineHeight := fontSize * 1.2
+	charWidth := fontSize * 0.6
+	if editor.config.Minimap.LineHeight > 0 {
+		lineHeight = editor.config.Minimap.LineHeight
+	}
+	if editor.config.Minimap.CharWidth > 0 {
+		charWidth = editor.config.Minimap.CharWidth
+	}
+
 	minimap := &MinimapWidget{
 		editor:          editor,
-		width:           120, // По умолчанию как в VS Code
+		width:           120,
 		height:          600,
 		isVisible:       true,
 		isEnabled:       true,
-		lineHeight:      2.0, // Очень маленькая высота строки
-		charWidth:       1.0, // Очень маленькая ширина символа
-		fontSize:        1.0, // Минимальный размер шрифта
-		maxCharsPerLine: 100,
-		showSyntax:      true,
-		showLineNumbers: false,
-		smoothScrolling: true,
-		autoHide:        false,
+		lineHeight:      lineHeight,
+		charWidth:       charWidth,
+		fontSize:        fontSize,
+		maxCharsPerLine: editor.config.Minimap.MaxCharsPerLine,
+		showSyntax:      editor.config.Minimap.ShowSyntax,
+		showLineNumbers: editor.config.Minimap.ShowLineNumbers,
+		smoothScrolling: editor.config.Minimap.SmoothScrolling,
+		autoHide:        editor.config.Minimap.AutoHide,
 		renderCache:     make(map[string]*canvas.Rectangle),
 		lineCache:       make(map[int]*MinimapLine),
 		updateChan:      make(chan MinimapUpdate, 100),
@@ -628,6 +643,34 @@ func (m *MinimapWidget) drawLine(line *MinimapLine, x, y float32) {
 
 	currentX := x
 
+	// Подсветка выделения
+	if m.editor != nil {
+		start := m.editor.selectionStart
+		end := m.editor.selectionEnd
+		if start != end {
+			if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+				start, end = end, start
+			}
+			lineIdx := line.LineNumber - 1
+			if lineIdx >= start.Row && lineIdx <= end.Row {
+				selStart := 0
+				selEnd := len(line.TrimmedContent)
+				if lineIdx == start.Row {
+					selStart = start.Col
+				}
+				if lineIdx == end.Row {
+					selEnd = end.Col
+				}
+				if selEnd > selStart {
+					rect := canvas.NewRectangle(m.colors.Selection)
+					rect.Move(fyne.NewPos(float32(selStart)*m.charWidth, y))
+					rect.Resize(fyne.NewSize(float32(selEnd-selStart)*m.charWidth, m.lineHeight))
+					m.canvas.Add(rect)
+				}
+			}
+		}
+	}
+
 	if line.IsBookmarked {
 		marker := canvas.NewRectangle(color.NRGBA{255, 215, 0, 255})
 		marker.Resize(fyne.NewSize(2, m.lineHeight))
@@ -636,16 +679,14 @@ func (m *MinimapWidget) drawLine(line *MinimapLine, x, y float32) {
 		currentX += 3
 	}
 
-	// Рисуем номер строки если включено
 	if m.showLineNumbers {
 		lineNumText := canvas.NewText(fmt.Sprintf("%d", line.LineNumber), m.colors.LineNumber)
 		lineNumText.TextSize = m.fontSize
 		lineNumText.Move(fyne.NewPos(currentX, y))
 		m.canvas.Add(lineNumText)
-		currentX += 30 // Отступ для номера строки
+		currentX += lineNumText.MinSize().Width + 2
 	}
 
-	// Рисуем отступы как вертикальные линии
 	if line.IndentLevel > 0 {
 		for level := 0; level < line.IndentLevel; level++ {
 			indentX := currentX + float32(level)*4*m.charWidth
@@ -657,25 +698,16 @@ func (m *MinimapWidget) drawLine(line *MinimapLine, x, y float32) {
 		}
 	}
 
-	// Рисуем сегменты строки
 	for _, segment := range line.Segments {
 		if segment.Text == "" {
 			continue
 		}
 
-		// Создаем прямоугольник для каждого символа (pixel perfect)
-		segmentWidth := float32(len(segment.Text)) * m.charWidth
-
-		if segmentWidth > 0 {
-			// Для очень маленького minimap рисуем прямоугольники вместо текста
-			rect := canvas.NewRectangle(segment.Color)
-			rect.Resize(fyne.NewSize(segmentWidth, m.lineHeight*0.8)) // 80% высоты для лучшего вида
-			rect.Move(fyne.NewPos(currentX, y+m.lineHeight*0.1))      // Небольшой отступ сверху
-
-			m.canvas.Add(rect)
-		}
-
-		currentX += float32(segment.EndCol-segment.StartCol) * m.charWidth
+		txt := canvas.NewText(segment.Text, segment.Color)
+		txt.TextSize = m.fontSize
+		txt.Move(fyne.NewPos(currentX, y))
+		m.canvas.Add(txt)
+		currentX += txt.MinSize().Width
 	}
 }
 

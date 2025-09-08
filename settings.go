@@ -97,11 +97,12 @@ type EditorConfig struct {
 	AutoSurround      bool `json:"auto_surround"`
 
 	// Подсветка и навигация
-	SyntaxHighlighting   bool `json:"syntax_highlighting"`
-	BracketMatching      bool `json:"bracket_matching"`
-	HighlightMatches     bool `json:"highlight_matches"`
-	HighlightCurrentWord bool `json:"highlight_current_word"`
-	VariableHighlight    bool `json:"variable_highlight"`
+	SyntaxHighlighting    bool `json:"syntax_highlighting"`
+	BracketMatching       bool `json:"bracket_matching"`
+	HighlightMatches      bool `json:"highlight_matches"`
+	HighlightCurrentWord  bool `json:"highlight_current_word"`
+	WordHighlightDuration int  `json:"word_highlight_duration"`
+	VariableHighlight     bool `json:"variable_highlight"`
 
 	// Автосохранение
 	AutoSave        bool   `json:"auto_save"`
@@ -494,11 +495,12 @@ func DefaultConfig() *Config {
 			AutoCloseQuotes:   true,
 			AutoSurround:      true,
 
-			SyntaxHighlighting:   true,
-			BracketMatching:      true,
-			HighlightMatches:     true,
-			HighlightCurrentWord: true,
-			VariableHighlight:    true,
+			SyntaxHighlighting:    true,
+			BracketMatching:       true,
+			HighlightMatches:      true,
+			HighlightCurrentWord:  true,
+			WordHighlightDuration: 2,
+			VariableHighlight:     true,
 
 			AutoSave:        true,
 			AutoSaveDelay:   300, // 5 минут
@@ -567,9 +569,9 @@ func DefaultConfig() *Config {
 			ShowIndentGuides: false,
 			ShowScrollbar:    false,
 
-			LineHeight:      2.0,
-			CharWidth:       1.0,
-			FontSize:        1.0,
+			LineHeight:      4.0,
+			CharWidth:       2.0,
+			FontSize:        3.0,
 			MaxCharsPerLine: 100,
 
 			SmoothScrolling: true,
@@ -1207,6 +1209,10 @@ func (cm *ConfigManager) getEditorValue(editor *EditorConfig, key string) interf
 		return editor.SyntaxHighlighting
 	case "bracket_matching":
 		return editor.BracketMatching
+	case "highlight_current_word":
+		return editor.HighlightCurrentWord
+	case "word_highlight_duration":
+		return editor.WordHighlightDuration
 	case "vim_mode":
 		return editor.VimMode
 	}
@@ -1257,6 +1263,14 @@ func (cm *ConfigManager) setEditorValue(editor *EditorConfig, key string, value 
 	case "bracket_matching":
 		if b, ok := value.(bool); ok {
 			editor.BracketMatching = b
+		}
+	case "highlight_current_word":
+		if b, ok := value.(bool); ok {
+			editor.HighlightCurrentWord = b
+		}
+	case "word_highlight_duration":
+		if i, ok := value.(int); ok {
+			editor.WordHighlightDuration = i
 		}
 	case "vim_mode":
 		if b, ok := value.(bool); ok {
@@ -1617,7 +1631,9 @@ func (cm *ConfigManager) validateEditorConfig(editor *EditorConfig) error {
 	if editor.AutoSaveDelay < 10 || editor.AutoSaveDelay > 3600 {
 		return fmt.Errorf("invalid auto save delay: %d", editor.AutoSaveDelay)
 	}
-
+	if editor.WordHighlightDuration < 0 || editor.WordHighlightDuration > 60 {
+		return fmt.Errorf("invalid word highlight duration: %d", editor.WordHighlightDuration)
+	}
 	if editor.MaxFileSize < 1024 || editor.MaxFileSize > 1073741824 { // 1KB - 1GB
 		return fmt.Errorf("invalid max file size: %d", editor.MaxFileSize)
 	}

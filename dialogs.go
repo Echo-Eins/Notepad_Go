@@ -432,6 +432,25 @@ func (dm *DialogManager) createEditorSettings(config *Config) fyne.CanvasObject 
 	})
 	highlightCurrentLineCheck.SetChecked(config.Editor.HighlightCurrentLine)
 
+	// Подсветка текущего слова
+	highlightCurrentWordCheck := widget.NewCheck("Highlight current word", func(checked bool) {
+		config.Editor.HighlightCurrentWord = checked
+	})
+	highlightCurrentWordCheck.SetChecked(config.Editor.HighlightCurrentWord)
+
+	// Время подсветки слова
+	highlightDurationEntry := widget.NewEntry()
+	highlightDurationEntry.SetText(strconv.Itoa(config.Editor.WordHighlightDuration))
+	highlightDurationEntry.OnChanged = func(text string) {
+		if v, err := strconv.Atoi(text); err == nil && v >= 0 && v <= 60 {
+			config.Editor.WordHighlightDuration = v
+		}
+	}
+	highlightDurationContainer := container.NewHBox(
+		widget.NewLabel("Word highlight duration (seconds, 0 = infinite):"),
+		highlightDurationEntry,
+	)
+
 	// Vim режим
 	vimModeCheck := widget.NewCheck("Enable Vim mode", func(checked bool) {
 		config.Editor.VimMode = checked
@@ -448,6 +467,8 @@ func (dm *DialogManager) createEditorSettings(config *Config) fyne.CanvasObject 
 			showLineNumbersCheck,
 			wordWrapCheck,
 			highlightCurrentLineCheck,
+			highlightCurrentWordCheck,
+			highlightDurationContainer,
 		)),
 		widget.NewCard("Input modes", "", container.NewVBox(
 			vimModeCheck,
