@@ -129,13 +129,11 @@ func (a *App) setupUI() {
 			errs := make([]CompilerError, 0, len(diags))
 			for _, d := range diags {
 				sev := "info"
-				if d.Severity != nil {
-					switch *d.Severity {
-					case lsp.DiagnosticSeverityError:
-						sev = "error"
-					case lsp.DiagnosticSeverityWarning:
-						sev = "warning"
-					}
+				switch d.Severity {
+				case lsp.Error:
+					sev = "error"
+				case lsp.Warning:
+					sev = "warning"
 				}
 				errs = append(errs, CompilerError{
 					File:    a.editor.filePath,
@@ -223,6 +221,7 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("Terminal (PowerShell)", a.openPowerShell),
 		fyne.NewMenuItem("Custom Tools", a.showCustomTools),
 		fyne.NewMenuItem("Compare Files...", a.compareFiles),
+		fyne.NewMenuItem("Get File Hash", a.showFileHash),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Format Code", a.formatCode),
 		fyne.NewMenuItem("Lint Code", a.lintCode),
@@ -974,6 +973,7 @@ func (a *App) getAvailableCommands() []Command {
 		{Name: "Toggle Sidebar", Shortcut: "Ctrl+B", Icon: theme.MenuIcon(), Action: a.toggleSidebar}, // Исправлено: заменено ViewListIcon на MenuIcon
 		{Name: "Toggle Minimap", Shortcut: "Ctrl+M", Icon: theme.ViewFullScreenIcon(), Action: a.toggleMinimap},
 		{Name: "Compare Files", Shortcut: "Ctrl+Shift+D", Icon: theme.ViewRefreshIcon(), Action: a.compareFiles},
+		{Name: "Get File Hash", Shortcut: "", Icon: theme.InfoIcon(), Action: a.showFileHash},
 		{Name: "Format Code", Shortcut: "Shift+Alt+F", Icon: theme.DocumentIcon(), Action: a.formatCode},
 		{Name: "Add Bookmark", Shortcut: "Ctrl+F2", Icon: theme.ContentAddIcon(), Action: a.addBookmark},
 		{Name: "Go to Bookmark", Shortcut: "F2", Icon: theme.NavigateNextIcon(), Action: a.goToBookmark},

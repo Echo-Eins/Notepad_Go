@@ -41,8 +41,10 @@ func (c *LSPClient) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrp
 		}
 		return
 	}
-	// For requests we don't handle, just reply nil.
-	conn.Reply(ctx, req.ID, nil, nil)
+	// For requests we don't handle, just reply nil and log any error.
+	if err := conn.Reply(ctx, req.ID, nil, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "LSP reply error: %v\n", err)
+	}
 }
 
 // Shutdown stops the language server process.
@@ -113,7 +115,7 @@ func (m *LSPManager) getClient(lang, root string) (*LSPClient, error) {
 
 	rootURI := lsp.DocumentURI("file://" + filepath.ToSlash(root))
 	initParams := lsp.InitializeParams{
-		ProcessID:    int64(os.Getpid()),
+		ProcessID:    os.Getpid(),
 		RootURI:      rootURI,
 		Capabilities: lsp.ClientCapabilities{},
 	}
@@ -175,7 +177,9 @@ func (m *LSPManager) DidChange(lang, uri, text string) error {
 	}
 	params := lsp.DidChangeTextDocumentParams{
 		TextDocument: lsp.VersionedTextDocumentIdentifier{
-			URI:     lsp.DocumentURI("file://" + filepath.ToSlash(uri)),
+			TextDocumentIdentifier: lsp.TextDocumentIdentifier{
+				URI: lsp.DocumentURI("file://" + filepath.ToSlash(uri)),
+			},
 			Version: 1,
 		},
 		ContentChanges: []lsp.TextDocumentContentChangeEvent{{Text: text}},
@@ -189,7 +193,10 @@ func (m *LSPManager) DidSave(lang, uri, text string) error {
 	if err != nil {
 		return err
 	}
-	params := lsp.DidSaveTextDocumentParams{
+	params := struct {
+		TextDocument lsp.TextDocumentIdentifier `json:"textDocument"`
+		Text         *string                    `json:"text,omitempty"`
+	}{
 		TextDocument: lsp.TextDocumentIdentifier{URI: lsp.DocumentURI("file://" + filepath.ToSlash(uri))},
 		Text:         &text,
 	}
@@ -207,8 +214,8 @@ func (m *LSPManager) Completion(lang, uri string, line, ch int) ([]lsp.Completio
 			TextDocument: lsp.TextDocumentIdentifier{URI: lsp.DocumentURI("file://" + filepath.ToSlash(uri))},
 		},
 	}
-	params.Position.Line = uint32(line)
-	params.Position.Character = uint32(ch)
+	params.Position.Line = line
+	params.Position.Character = ch
 	var res lsp.CompletionList
 	if err := client.conn.Call(context.Background(), "textDocument/completion", params, &res); err != nil {
 		return nil, err
