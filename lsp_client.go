@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	lsp "github.com/sourcegraph/go-lsp"
@@ -96,6 +97,7 @@ func (m *LSPManager) SetDiagnosticsHandler(handler func(string, []lsp.Diagnostic
 
 // getClient returns an existing client or starts a new one.
 func (m *LSPManager) getClient(lang, root string) (*LSPClient, error) {
+	lang = strings.ToLower(lang)
 	m.mu.Lock()
 	if c, ok := m.clients[lang]; ok {
 		m.mu.Unlock()
@@ -106,6 +108,9 @@ func (m *LSPManager) getClient(lang, root string) (*LSPClient, error) {
 	cmdArgs := serverCommandFor(lang)
 	if len(cmdArgs) == 0 {
 		return nil, fmt.Errorf("no LSP server for %s", lang)
+	}
+	if _, err := exec.LookPath(cmdArgs[0]); err != nil {
+		return nil, fmt.Errorf("LSP server %s not found in PATH", cmdArgs[0])
 	}
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	stdin, err := cmd.StdinPipe()
@@ -146,26 +151,75 @@ func (m *LSPManager) getClient(lang, root string) (*LSPClient, error) {
 	return client, nil
 }
 
+var lspServers = map[string][]string{
+	"go":         {"gopls"},
+	"rust":       {"rust-analyzer"},
+	"python":     {"pylsp"},
+	"java":       {"jdtls"},
+	"c":          {"clangd"},
+	"cpp":        {"clangd"},
+	"javascript": {"typescript-language-server", "--stdio"},
+	"typescript": {"typescript-language-server", "--stdio"},
+	"html":       {"vscode-html-language-server", "--stdio"},
+	"css":        {"vscode-css-language-server", "--stdio"},
+	"json":       {"vscode-json-language-server", "--stdio"},
+	"xml":        {"lemminx"},
+	"markdown":   {"marksman", "server"},
+}
+
 // serverCommandFor returns the command to start the language server.
 func serverCommandFor(lang string) []string {
-	switch lang {
-	case "go":
-		return []string{"gopls"}
-	case "rust":
-		return []string{"rust-analyzer"}
-	case "python":
-		return []string{"pylsp"}
-	case "java":
-		return []string{"jdtls"}
-	case "c", "cpp":
-		return []string{"clangd"}
+	lang = strings.ToLower(lang)
+	return lspServers[lang]
+}
+
+func languageFromPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go":
+		return "go"
+	case ".rs":
+		return "rust"
+	case ".py":
+		return "python"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".hh":
+		return "cpp"
+	case ".java":
+		return "java"
+	case ".js":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	case ".html":
+		return "html"
+	case ".css":
+		return "css"
+	case ".json":
+		return "json"
+	case ".xml":
+		return "xml"
+	case ".md":
+		return "markdown"
 	default:
-		return nil
+		return ""
 	}
+}
+
+func resolveLanguage(lang, uri string) string {
+	lang = strings.ToLower(lang)
+	if lang != "" {
+		return lang
+	}
+	return languageFromPath(uri)
 }
 
 // DidOpen notifies server about an opened document.
 func (m *LSPManager) DidOpen(lang, uri, text string) error {
+	lang = resolveLanguage(lang, uri)
+	if lang == "" {
+		return fmt.Errorf("unable to determine language for %s", uri)
+	}
 	root := filepath.Dir(uri)
 	client, err := m.getClient(lang, root)
 	if err != nil {
@@ -184,6 +238,10 @@ func (m *LSPManager) DidOpen(lang, uri, text string) error {
 
 // DidChange sends document changes to server.
 func (m *LSPManager) DidChange(lang, uri, text string) error {
+	lang = resolveLanguage(lang, uri)
+	if lang == "" {
+		return fmt.Errorf("unable to determine language for %s", uri)
+	}
 	client, err := m.getClient(lang, filepath.Dir(uri))
 	if err != nil {
 		return err
@@ -202,6 +260,10 @@ func (m *LSPManager) DidChange(lang, uri, text string) error {
 
 // DidSave notifies server about file save.
 func (m *LSPManager) DidSave(lang, uri, text string) error {
+	lang = resolveLanguage(lang, uri)
+	if lang == "" {
+		return fmt.Errorf("unable to determine language for %s", uri)
+	}
 	client, err := m.getClient(lang, filepath.Dir(uri))
 	if err != nil {
 		return err
@@ -218,6 +280,10 @@ func (m *LSPManager) DidSave(lang, uri, text string) error {
 
 // Completion requests completion items at position.
 func (m *LSPManager) Completion(lang, uri string, line, ch int) ([]lsp.CompletionItem, error) {
+	lang = resolveLanguage(lang, uri)
+	if lang == "" {
+		return nil, fmt.Errorf("unable to determine language for %s", uri)
+	}
 	client, err := m.getClient(lang, filepath.Dir(uri))
 	if err != nil {
 		return nil, err

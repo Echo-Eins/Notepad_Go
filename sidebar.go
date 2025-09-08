@@ -68,6 +68,9 @@ type SidebarWidget struct {
 	// Настройки
 	config *Config
 
+	// Parent window for dialogs
+	window fyne.Window
+
 	// Callbacks
 	onFileSelected func(string)
 	onFileOpened   func(string)
@@ -223,6 +226,21 @@ func (s *SidebarWidget) setupComponents() {
 	})
 	homeBtn.SetText("Home")
 
+	openBtn := NewAnimatedButtonWithIcon("", theme.FolderOpenIcon(), func() {
+		dialog.NewFolderOpen(func(dir fyne.ListableURI, err error) {
+			if err != nil {
+				s.updateStatus(fmt.Sprintf("Cannot select folder: %v", err))
+				return
+			}
+			if dir != nil {
+				if err := s.SetRootPath(dir.Path()); err != nil {
+					s.updateStatus(fmt.Sprintf("Cannot open folder: %v", err))
+				}
+			}
+		}, s.window).Show()
+	})
+	openBtn.SetText("Open")
+
 	// Настройки отображения
 	settingsBtn := NewAnimatedButtonWithIcon("", theme.SettingsIcon(), func() {
 		s.showSettingsDialog()
@@ -230,7 +248,7 @@ func (s *SidebarWidget) setupComponents() {
 
 	// Toolbar
 	s.toolbar = container.NewHBox(
-		upBtn, homeBtn, refreshBtn, settingsBtn,
+		upBtn, homeBtn, refreshBtn, openBtn, settingsBtn,
 	)
 
 	// Статус бар
@@ -251,9 +269,10 @@ func (s *SidebarWidget) setupComponents() {
 }
 
 // NewSidebar создает новый файловый менеджер
-func NewSidebar(config *Config) *SidebarWidget {
+func NewSidebar(config *Config, window fyne.Window) *SidebarWidget {
 	sidebar := &SidebarWidget{
 		config:        config,
+		window:        window,
 		fileNodes:     make(map[string]*FileNode),
 		filteredNodes: make(map[string]*FileNode),
 		watchedDirs:   make(map[string]bool),
@@ -393,14 +412,21 @@ func (s *SidebarWidget) treeUpdateNode(uid string, branch bool, node fyne.Canvas
 
 // SetRootPath устанавливает корневую директорию
 func (s *SidebarWidget) SetRootPath(path string) error {
-	// Проверяем существование директории
+	// Проверяем путь и приводим его к директории
 	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("cannot access directory: %v", err)
+		return fmt.Errorf("cannot access path: %v", err)
 	}
 
 	if !info.IsDir() {
-		return fmt.Errorf("path is not a directory: %s", path)
+		path = filepath.Dir(path)
+		info, err = os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("cannot access directory: %v", err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("path is not a directory: %s", path)
+		}
 	}
 
 	s.stopWatching()

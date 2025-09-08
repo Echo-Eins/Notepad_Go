@@ -452,7 +452,13 @@ func (dm *DialogManager) createEditorSettings(config *Config) fyne.CanvasObject 
 	)
 
 	// Настройки фолдинга кода
-	var foldCommentsCheck, foldImportsCheck *widget.Check
+	foldCommentsCheck := widget.NewCheck("Fold comments by default", func(checked bool) {
+		config.Editor.FoldComments = checked
+	})
+	foldImportsCheck := widget.NewCheck("Fold import statements by default", func(checked bool) {
+		config.Editor.FoldImports = checked
+	})
+
 	codeFoldingCheck := widget.NewCheck("Enable code folding", func(checked bool) {
 		config.Editor.CodeFolding = checked
 		if checked {
@@ -463,17 +469,11 @@ func (dm *DialogManager) createEditorSettings(config *Config) fyne.CanvasObject 
 			foldImportsCheck.Disable()
 		}
 	})
-	codeFoldingCheck.SetChecked(config.Editor.CodeFolding)
 
-	foldCommentsCheck = widget.NewCheck("Fold comments by default", func(checked bool) {
-		config.Editor.FoldComments = checked
-	})
 	foldCommentsCheck.SetChecked(config.Editor.FoldComments)
 
-	foldImportsCheck = widget.NewCheck("Fold import statements by default", func(checked bool) {
-		config.Editor.FoldImports = checked
-	})
 	foldImportsCheck.SetChecked(config.Editor.FoldImports)
+	codeFoldingCheck.SetChecked(config.Editor.CodeFolding)
 
 	if !config.Editor.CodeFolding {
 		foldCommentsCheck.Disable()

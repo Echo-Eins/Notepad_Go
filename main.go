@@ -105,7 +105,7 @@ func NewApp() *App {
 func (a *App) setupUI() {
 	// Создаем основные компоненты
 	a.editor = NewEditor(a.config)
-	a.sidebar = NewSidebar(a.config)
+	a.sidebar = NewSidebar(a.config, a.mainWin)
 	a.minimap = NewMinimap(a.editor)
 
 	// Создаем менеджеры

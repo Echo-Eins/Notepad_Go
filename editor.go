@@ -391,9 +391,11 @@ func (e *EditorWidget) updateLineNumbers() {
 		b.WriteString(fmt.Sprintf("%s%*d", marker, digits, i))
 	}
 
-	e.lineNumbers.SetText(b.String())
-
-	e.lineNumbers.Refresh()
+	text := b.String()
+	fyne.Do(func() {
+		e.lineNumbers.SetText(text)
+		e.lineNumbers.Refresh()
+	})
 }
 
 // setupSyntaxHighlighter настраивает подсветку синтаксиса
@@ -2410,6 +2412,13 @@ func (e *EditorWidget) showContextMenu(pos fyne.Position) {
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Select All", func() {
 			e.SelectAll()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Fold Block", func() {
+			e.FoldCurrentBlock()
+		}),
+		fyne.NewMenuItem("Unfold Block", func() {
+			e.UnfoldCurrentBlock()
 		}),
 	)
 	widget.NewPopUpMenu(menu, c).ShowAtPosition(pos)
