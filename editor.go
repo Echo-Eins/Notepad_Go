@@ -123,7 +123,7 @@ type EditorWidget struct {
 	vimMode VimMode
 
 	// Bookmarks
-	bookmarks map[int]Bookmark
+	bookmarks []Bookmark
 
 	// Lint errors by line number
 	lintLines map[int]string
@@ -134,9 +134,17 @@ type EditorWidget struct {
 
 // Bookmark represents a bookmark in editor
 type Bookmark struct {
-	Line int
-	Name string
+	StartLine int
+	EndLine   int
+	File      string
+	Function  string
+	Comment   string
 }
+
+var (
+	goFuncDeclRegex = regexp.MustCompile(`\bfunc\s+(?:\([^\)]*\)\s*)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+	pyFuncDeclRegex = regexp.MustCompile(`\bdef\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+)
 
 // MeasureString is a helper that calculates the size of a string using the
 // current theme text size and a default text style. Fyne removed MeasureString
@@ -239,15 +247,12 @@ func (e *EditorWidget) SetContent(content string) {
 	e.updateDisplay()
 }
 
-// AddBookmark adds a bookmark at specific line
-func (e *EditorWidget) AddBookmark(line int, name string) {
-	if line < 1 {
+// AddBookmark adds a bookmark
+func (e *EditorWidget) AddBookmark(b Bookmark) {
+	if b.StartLine < 1 || b.EndLine < b.StartLine {
 		return
 	}
-	if e.bookmarks == nil {
-		e.bookmarks = make(map[int]Bookmark)
-	}
-	e.bookmarks[line] = Bookmark{Line: line, Name: name}
+	e.bookmarks = append(e.bookmarks, b)
 	e.updateLineNumbers()
 	if e.onBookmarksChanged != nil {
 		e.onBookmarksChanged()
@@ -255,11 +260,14 @@ func (e *EditorWidget) AddBookmark(line int, name string) {
 }
 
 // RemoveBookmark deletes bookmark from line
-func (e *EditorWidget) RemoveBookmark(line int) {
-	if e.bookmarks == nil {
-		return
+// RemoveBookmark deletes bookmark
+func (e *EditorWidget) RemoveBookmark(b Bookmark) {
+	for i, bm := range e.bookmarks {
+		if bm.StartLine == b.StartLine && bm.EndLine == b.EndLine && bm.File == b.File && bm.Function == b.Function && bm.Comment == b.Comment {
+			e.bookmarks = append(e.bookmarks[:i], e.bookmarks[i+1:]...)
+			break
+		}
 	}
-	delete(e.bookmarks, line)
 	e.updateLineNumbers()
 	if e.onBookmarksChanged != nil {
 		e.onBookmarksChanged()
@@ -271,23 +279,56 @@ func (e *EditorWidget) IsLineBookmarked(line int) bool {
 	if e.bookmarks == nil {
 		return false
 	}
-	_, ok := e.bookmarks[line]
-	return ok
+	for _, b := range e.bookmarks {
+		if line >= b.StartLine && line <= b.EndLine {
+			return true
+		}
+	}
+	return false
 }
 
 // GetBookmarks returns all bookmarks
 func (e *EditorWidget) GetBookmarks() []Bookmark {
-	result := []Bookmark{}
-	for _, b := range e.bookmarks {
-		result = append(result, b)
-	}
-	return result
+	return append([]Bookmark{}, e.bookmarks...)
 }
 
 // GoToBookmark moves cursor to bookmark line
-func (e *EditorWidget) GoToBookmark(line int) error {
-	cmd := &GoToLineCommand{lineNumber: line}
+// GoToBookmark moves cursor to bookmark start line
+func (e *EditorWidget) GoToBookmark(b Bookmark) error {
+	cmd := &GoToLineCommand{lineNumber: b.StartLine}
 	return cmd.Execute(e)
+}
+
+// GetSelectedLines returns start and end line of current selection or cursor line if no selection
+func (e *EditorWidget) GetSelectedLines() (int, int) {
+	if e.selectionStart == (TextPosition{}) && e.selectionEnd == (TextPosition{}) {
+		line := e.cursorRow + 1
+		return line, line
+	}
+	start := e.selectionStart.Row
+	end := e.selectionEnd.Row
+	if start > end {
+		start, end = end, start
+	}
+	return start + 1, end + 1
+}
+
+// GetFunctionNameAtLine returns function name for given line if detected
+func (e *EditorWidget) GetFunctionNameAtLine(line int) string {
+	lines := strings.Split(e.textContent, "\n")
+	if line < 1 || line > len(lines) {
+		return ""
+	}
+	for i := line - 1; i >= 0; i-- {
+		l := lines[i]
+		if match := goFuncDeclRegex.FindStringSubmatch(l); len(match) > 1 {
+			return match[1]
+		}
+		if match := pyFuncDeclRegex.FindStringSubmatch(l); len(match) > 1 {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 // SetLintErrors highlights line numbers that contain linter errors
@@ -1315,7 +1356,9 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 
 // FoldCurrentBlock добавляет текущую строку в свернутые диапазоны
 func (e *EditorWidget) FoldCurrentBlock() {
-	e.toggleFold(e.cursorRow)
+	if e.config != nil && e.config.Editor.CodeFolding {
+		e.toggleFold(e.cursorRow)
+	}
 }
 
 // UnfoldCurrentBlock раскрывает текущий свернутый блок
@@ -1327,9 +1370,11 @@ func (e *EditorWidget) UnfoldCurrentBlock() {
 
 // FoldAll сворачивает все возможные блоки
 func (e *EditorWidget) FoldAll() {
-	lines := strings.Split(e.textContent, "\n")
-	for i := 0; i < len(lines); i++ {
-		e.toggleFold(i)
+	if e.config != nil && e.config.Editor.CodeFolding {
+		lines := strings.Split(e.textContent, "\n")
+		for i := 0; i < len(lines); i++ {
+			e.toggleFold(i)
+		}
 	}
 }
 
@@ -1565,7 +1610,27 @@ func (e *EditorWidget) positionToIndex(pos TextPosition) int {
 
 // updateCodeFolding обновляет фолдинг кода
 func (e *EditorWidget) updateCodeFolding() {
+	if e.config == nil || !e.config.Editor.CodeFolding {
+		if len(e.foldedRanges) > 0 {
+			e.UnfoldAll()
+		}
+		e.indentGuides = nil
+		return
+	}
+
 	lines := strings.Split(e.textContent, "\n")
+
+	if len(e.foldedRanges) == 0 {
+		if e.config.Editor.FoldComments {
+			lines = e.autoFoldComments(lines)
+		}
+		if e.config.Editor.FoldImports {
+			lines = e.autoFoldImports(lines)
+		}
+	}
+
+	e.textContent = strings.Join(lines, "\n")
+
 	e.indentGuides = []IndentGuide{}
 
 	// Анализируем отступы и создаем направляющие
@@ -1576,6 +1641,7 @@ func (e *EditorWidget) updateCodeFolding() {
 
 		indent := e.getIndentLevel(line)
 		if indent > 0 {
+			row := i
 			guide := IndentGuide{
 				Row:        i,
 				Col:        indent * 4, // Предполагаем 4 пробела на уровень
@@ -1583,12 +1649,17 @@ func (e *EditorWidget) updateCodeFolding() {
 				IsVertical: true,
 				Label:      e.getBlockLabel(lines, i),
 				OnClick: func() {
-					e.toggleFold(i)
+					e.toggleFold(row)
 				},
 			}
 			e.indentGuides = append(e.indentGuides, guide)
 		}
 	}
+	fyne.Do(func() {
+		e.content.SetText(e.textContent)
+	})
+	e.updateLineNumbers()
+	e.applySyntaxHighlighting()
 }
 
 // getIndentLevel возвращает уровень отступа строки
@@ -1611,7 +1682,11 @@ func (e *EditorWidget) getBlockLabel(lines []string, startRow int) string {
 	line := strings.TrimSpace(lines[startRow])
 
 	// Определяем тип блока
-	if strings.Contains(line, "func ") {
+	if strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
+		return "comment"
+	} else if strings.HasPrefix(line, "import ") {
+		return "imports"
+	} else if strings.Contains(line, "func ") {
 		return "function"
 	} else if strings.Contains(line, "for ") {
 		return "for loop"
@@ -1630,6 +1705,10 @@ func (e *EditorWidget) getBlockLabel(lines []string, startRow int) string {
 
 // toggleFold переключает свертывание блока кода
 func (e *EditorWidget) toggleFold(row int) {
+	if e.config != nil && !e.config.Editor.CodeFolding {
+		return
+	}
+
 	lines := strings.Split(e.textContent, "\n")
 	if fold, exists := e.foldedRanges[row]; exists && fold.IsFolded {
 		before := lines[:row+1]
@@ -1663,6 +1742,89 @@ func (e *EditorWidget) toggleFold(row int) {
 	e.updateLineNumbers()
 	e.applySyntaxHighlighting()
 	e.updateIndentGuides()
+}
+
+// autoFoldComments сворачивает блоки комментариев
+func (e *EditorWidget) autoFoldComments(lines []string) []string {
+	type fold struct{ start, end int }
+	ranges := []fold{}
+
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "//") {
+			start := i
+			for i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "//") {
+				i++
+			}
+			if i > start {
+				ranges = append(ranges, fold{start: start, end: i})
+			}
+		} else if strings.HasPrefix(trimmed, "/*") {
+			start := i
+			for i+1 < len(lines) && !strings.Contains(lines[i+1], "*/") {
+				i++
+			}
+			if i+1 < len(lines) {
+				i++
+				ranges = append(ranges, fold{start: start, end: i})
+			}
+		}
+	}
+
+	for i := len(ranges) - 1; i >= 0; i-- {
+		r := ranges[i]
+		lines = e.foldRange(r.start, r.end, lines)
+	}
+
+	return lines
+}
+
+// autoFoldImports сворачивает блоки импортов
+func (e *EditorWidget) autoFoldImports(lines []string) []string {
+	type fold struct{ start, end int }
+	ranges := []fold{}
+
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "import (") {
+			start := i
+			j := i + 1
+			for j < len(lines) && strings.TrimSpace(lines[j]) != ")" {
+				j++
+			}
+			if j < len(lines) {
+				ranges = append(ranges, fold{start: start, end: j - 1})
+				i = j
+			}
+		}
+	}
+
+	for i := len(ranges) - 1; i >= 0; i-- {
+		r := ranges[i]
+		lines = e.foldRange(r.start, r.end, lines)
+	}
+
+	return lines
+}
+
+// foldRange сворачивает указанный диапазон строк
+func (e *EditorWidget) foldRange(start, end int, lines []string) []string {
+	if end <= start || start < 0 || end >= len(lines) {
+		return lines
+	}
+	if _, exists := e.foldedRanges[start]; exists {
+		return lines
+	}
+	hidden := append([]string(nil), lines[start+1:end+1]...)
+	e.foldedRanges[start] = FoldRange{
+		Start:       start,
+		End:         end,
+		IsFolded:    true,
+		IndentLevel: e.getIndentLevel(lines[start]),
+		Label:       e.getBlockLabel(lines, start),
+		Lines:       hidden,
+	}
+	return append(lines[:start+1], append([]string{"/*...*/"}, lines[end+1:]...)...)
 }
 
 // findBlockEnd находит конец блока кода

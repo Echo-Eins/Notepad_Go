@@ -14,6 +14,21 @@ import (
 	jsonrpc2 "github.com/sourcegraph/jsonrpc2"
 )
 
+// readWriteCloser combines separate reader and writer streams and
+// implements io.ReadWriteCloser by closing both underlying streams.
+type readWriteCloser struct {
+	io.ReadCloser
+	io.WriteCloser
+}
+
+func (rwc *readWriteCloser) Close() error {
+	if err := rwc.ReadCloser.Close(); err != nil {
+		_ = rwc.WriteCloser.Close()
+		return err
+	}
+	return rwc.WriteCloser.Close()
+}
+
 // LSPClient represents a connection to a language server.
 type LSPClient struct {
 	lang          string
@@ -42,7 +57,7 @@ func (c *LSPClient) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrp
 		return
 	}
 	// For requests we don't handle, just reply nil and log any error.
-	if err := conn.Reply(ctx, req.ID, nil, nil); err != nil {
+	if err := conn.Reply(ctx, req.ID, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "LSP reply error: %v\n", err)
 	}
 }
@@ -106,10 +121,8 @@ func (m *LSPManager) getClient(lang, root string) (*LSPClient, error) {
 		return nil, err
 	}
 
-	stream := jsonrpc2.NewBufferedStream(struct {
-		io.Reader
-		io.Writer
-	}{stdout, stdin}, jsonrpc2.VSCodeObjectCodec{})
+	rwc := &readWriteCloser{ReadCloser: stdout, WriteCloser: stdin}
+	stream := jsonrpc2.NewBufferedStream(rwc, jsonrpc2.VSCodeObjectCodec{})
 	client := &LSPClient{lang: lang, cmd: cmd, diagnostics: make(map[string][]lsp.Diagnostic)}
 	client.conn = jsonrpc2.NewConn(context.Background(), stream, client)
 

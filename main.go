@@ -791,16 +791,24 @@ func (a *App) addBookmark() {
 	if a.editor == nil {
 		return
 	}
-	line := a.editor.cursorRow + 1
+	start, end := a.editor.GetSelectedLines()
+	funcName := a.editor.GetFunctionNameAtLine(start)
 	entry := widget.NewEntry()
-	entry.SetText(fmt.Sprintf("Bookmark %d", line))
+	entry.SetText(fmt.Sprintf("Bookmark %d", start))
 	content := container.NewVBox(
-		widget.NewLabel(fmt.Sprintf("Bookmark name for line %d:", line)),
+		widget.NewLabel(fmt.Sprintf("Bookmark comment for lines %d-%d:", start, end)),
 		entry,
 	)
 	dialog.NewCustomConfirm("Add Bookmark", "Add", "Cancel", content, func(confirmed bool) {
 		if confirmed {
-			cmd := &AddBookmarkCommand{line: line, name: entry.Text}
+			bm := Bookmark{
+				StartLine: start,
+				EndLine:   end,
+				File:      a.currentFile,
+				Function:  funcName,
+				Comment:   entry.Text,
+			}
+			cmd := &AddBookmarkCommand{bookmark: bm}
 			_ = cmd.Execute(a.editor)
 		}
 	}, a.mainWin).Show()
@@ -818,7 +826,7 @@ func (a *App) goToBookmark() {
 	}
 	names := make([]string, len(bookmarks))
 	for i, bm := range bookmarks {
-		names[i] = fmt.Sprintf("%s (line %d)", bm.Name, bm.Line)
+		names[i] = fmt.Sprintf("%s:%s:%d-%d %s", filepath.Base(bm.File), bm.Function, bm.StartLine, bm.EndLine, bm.Comment)
 	}
 	list := widget.NewList(
 		func() int { return len(names) },
@@ -827,7 +835,7 @@ func (a *App) goToBookmark() {
 	)
 	list.OnSelected = func(id widget.ListItemID) {
 		if id >= 0 && id < len(bookmarks) {
-			cmd := &GoToBookmarkCommand{line: bookmarks[id].Line}
+			cmd := &GoToBookmarkCommand{bookmark: bookmarks[id]}
 			_ = cmd.Execute(a.editor)
 		}
 	}
@@ -846,7 +854,7 @@ func (a *App) removeBookmark() {
 	}
 	names := make([]string, len(bookmarks))
 	for i, bm := range bookmarks {
-		names[i] = fmt.Sprintf("%s (line %d)", bm.Name, bm.Line)
+		names[i] = fmt.Sprintf("%s:%s:%d-%d %s", filepath.Base(bm.File), bm.Function, bm.StartLine, bm.EndLine, bm.Comment)
 	}
 	list := widget.NewList(
 		func() int { return len(names) },
@@ -855,7 +863,7 @@ func (a *App) removeBookmark() {
 	)
 	list.OnSelected = func(id widget.ListItemID) {
 		if id >= 0 && id < len(bookmarks) {
-			cmd := &RemoveBookmarkCommand{line: bookmarks[id].Line}
+			cmd := &RemoveBookmarkCommand{bookmark: bookmarks[id]}
 			_ = cmd.Execute(a.editor)
 			list.UnselectAll()
 		}
