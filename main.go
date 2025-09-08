@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/lithammer/fuzzysearch/fuzzy"
+	lsp "github.com/sourcegraph/go-lsp"
 	"log"
 	"os"
 	"path/filepath"
@@ -39,6 +40,7 @@ type App struct {
 	hotkeyManager      *HotkeyManager
 	dialogManager      *DialogManager
 	terminalMgr        *TerminalManager
+	lspManager         *LSPManager
 	mainContent        fyne.CanvasObject
 	currentFile        string
 	recentFiles        []string
@@ -93,6 +95,7 @@ func NewApp() *App {
 		recentFiles:    config.App.LastOpenedFiles,
 		commandHistory: NewCommandHistory(100),
 		appTheme:       appTheme,
+		lspManager:     NewLSPManager(),
 	}
 
 	return appInstance
@@ -109,6 +112,42 @@ func (a *App) setupUI() {
 	a.dialogManager = NewDialogManager(a.mainWin, a.editor, a.config)
 	a.terminalMgr = NewTerminalManager(a.config)
 	a.hotkeyManager = NewHotkeyManager(a.config, a.mainWin)
+
+	if a.lspManager != nil {
+		a.lspManager.SetDiagnosticsHandler(func(uri string, diags []lsp.Diagnostic) {
+			if a.editor == nil || a.editor.filePath == "" {
+				return
+			}
+			currentURI := "file://" + filepath.ToSlash(a.editor.filePath)
+			if uri != currentURI {
+				return
+			}
+			if len(diags) == 0 {
+				a.editor.ClearLintErrors()
+				return
+			}
+			errs := make([]CompilerError, 0, len(diags))
+			for _, d := range diags {
+				sev := "info"
+				if d.Severity != nil {
+					switch *d.Severity {
+					case lsp.DiagnosticSeverityError:
+						sev = "error"
+					case lsp.DiagnosticSeverityWarning:
+						sev = "warning"
+					}
+				}
+				errs = append(errs, CompilerError{
+					File:    a.editor.filePath,
+					Line:    int(d.Range.Start.Line) + 1,
+					Column:  int(d.Range.Start.Character) + 1,
+					Type:    sev,
+					Message: d.Message,
+				})
+			}
+			a.editor.SetLintErrors(errs)
+		})
+	}
 
 	// Передаем ссылку на App в HotkeyManager для доступа к методам
 	a.hotkeyManager.SetApp(a)
@@ -278,6 +317,11 @@ func (a *App) setupCallbacks() {
 			if a.minimap != nil {
 				a.minimap.SetContent(content)
 			}
+			if a.lspManager != nil && a.editor.filePath != "" {
+				if err := a.lspManager.DidChange(a.editor.language, a.editor.filePath, content); err != nil {
+					log.Printf("LSP change error: %v", err)
+				}
+			}
 		}
 		a.editor.onCursorChanged = func(row, col int) {
 			// Обновляем статус бар
@@ -289,6 +333,11 @@ func (a *App) setupCallbacks() {
 			a.updateTitle()
 			a.addToRecentFiles(filepath)
 			a.updateBreadcrumb(filepath)
+			if a.lspManager != nil {
+				if err := a.lspManager.DidOpen(a.editor.language, filepath, a.editor.textContent); err != nil {
+					log.Printf("LSP open error: %v", err)
+				}
+			}
 		}
 
 		a.editor.onBookmarksChanged = func() {
@@ -465,6 +514,11 @@ func (a *App) loadFile(path string) {
 			a.updateTitle()
 			a.addToRecentFiles(path)
 			a.updateBreadcrumb(path)
+			if a.lspManager != nil {
+				if err := a.lspManager.DidOpen(a.editor.language, path, a.editor.textContent); err != nil {
+					log.Printf("LSP open error: %v", err)
+				}
+			}
 		}
 	}
 }
@@ -484,6 +538,11 @@ func (a *App) saveFile() {
 		dialog.ShowError(err, a.mainWin)
 	} else {
 		a.updateTitle()
+		if a.lspManager != nil {
+			if err := a.lspManager.DidSave(a.editor.language, a.editor.filePath, a.editor.textContent); err != nil {
+				log.Printf("LSP save error: %v", err)
+			}
+		}
 	}
 }
 
@@ -500,6 +559,14 @@ func (a *App) saveAsFile() {
 			a.currentFile = path
 			a.updateTitle()
 			a.addToRecentFiles(path)
+			if a.lspManager != nil {
+				if err := a.lspManager.DidSave(a.editor.language, path, a.editor.textContent); err != nil {
+					log.Printf("LSP save error: %v", err)
+				}
+				if err := a.lspManager.DidOpen(a.editor.language, path, a.editor.textContent); err != nil {
+					log.Printf("LSP open error: %v", err)
+				}
+			}
 		}
 	})
 }
@@ -1490,6 +1557,9 @@ func (a *App) cleanup() {
 
 	if a.configManager != nil {
 		a.configManager.Cleanup()
+	}
+	if a.lspManager != nil {
+		a.lspManager.Shutdown()
 	}
 }
 

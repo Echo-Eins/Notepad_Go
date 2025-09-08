@@ -673,6 +673,28 @@ type Parameter struct {
 	Text         string // Полный текст параметра
 }
 
+// ToSnippet формирует сниппет с плейсхолдерами для параметров функции.
+func (sig *FunctionSignature) ToSnippet() string {
+	if sig == nil {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(sig.Name)
+	builder.WriteString("(")
+	for i, p := range sig.Parameters {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+		name := p.Name
+		if name == "" {
+			name = fmt.Sprintf("param%d", i+1)
+		}
+		builder.WriteString(fmt.Sprintf("${%d:%s}", i+1, name))
+	}
+	builder.WriteString(")")
+	return builder.String()
+}
+
 // Helper functions
 
 func parseInt(s string) (int, error) {

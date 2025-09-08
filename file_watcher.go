@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -32,6 +35,21 @@ type WatchedFile struct {
 	Size         int64
 	Hash         string
 	IsDirectory  bool
+}
+
+// calculateFileHash вычисляет SHA-256 хеш содержимого файла
+func calculateFileHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // FileEvent представляет событие файловой системы
@@ -111,11 +129,21 @@ func (fw *FileWatcher) WatchFile(path string) error {
 		return fmt.Errorf("failed to add file to watcher: %v", err)
 	}
 
+	// Вычисляем хеш для файлов
+	var hash string
+	if !info.IsDir() {
+		hash, err = calculateFileHash(absPath)
+		if err != nil {
+			return fmt.Errorf("failed to hash file: %v", err)
+		}
+	}
+
 	// Сохраняем информацию о файле
 	fw.watchedFiles[absPath] = &WatchedFile{
 		Path:         absPath,
 		LastModified: info.ModTime(),
 		Size:         info.Size(),
+		Hash:         hash,
 		IsDirectory:  info.IsDir(),
 	}
 
@@ -443,7 +471,7 @@ func NewFileChangeDetector() *FileChangeDetector {
 
 // HasFileChanged проверяет, изменился ли файл
 func (fcd *FileChangeDetector) HasFileChanged(path string) (bool, error) {
-	// Вычисляем контрольную сумму файла
+	// calculateChecksum вычисляет SHA-256 контрольную сумму файла
 	newChecksum, err := fcd.calculateChecksum(path)
 	if err != nil {
 		return false, err
@@ -476,10 +504,11 @@ func (fcd *FileChangeDetector) calculateChecksum(path string) (string, error) {
 		return "", err
 	}
 
-	// Простая контрольная сумма на основе размера и времени изменения
-	// В production можно использовать MD5 или SHA для более точной проверки
-	checksum := fmt.Sprintf("%d_%d", info.Size(), info.ModTime().Unix())
-	return checksum, nil
+	if info.IsDir() {
+		return fmt.Sprintf("dir_%d", info.ModTime().Unix()), nil
+	}
+
+	return calculateFileHash(path)
 }
 
 // UpdateChecksum обновляет контрольную сумму файла

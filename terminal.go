@@ -48,6 +48,7 @@ type TerminalInstance struct {
 	IsRunning    bool
 	Window       fyne.Window
 	Output       *widget.Entry
+	OutputScroll *container.Scroll
 	Input        *widget.Entry
 	OutputBuffer strings.Builder
 	mutex        sync.Mutex
@@ -277,6 +278,7 @@ func (tm *TerminalManager) createTerminalWindow(terminal *TerminalInstance) {
 	// Создаем layout
 	outputScroll := container.NewScroll(output)
 	outputScroll.SetMinSize(fyne.NewSize(800, 500))
+	terminal.OutputScroll = outputScroll
 
 	content := container.NewBorder(
 		toolbar,
@@ -402,6 +404,9 @@ func (tm *TerminalManager) updateTerminalOutput(terminal *TerminalInstance) {
 
 		// Прокручиваем к концу
 		terminal.Output.CursorRow = len(strings.Split(content, "\n")) - 1
+		if terminal.OutputScroll != nil {
+			terminal.OutputScroll.ScrollToBottom()
+		}
 	})
 }
 

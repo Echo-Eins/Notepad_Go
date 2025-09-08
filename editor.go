@@ -839,6 +839,8 @@ func (e *EditorWidget) detectLanguage() {
 		lexerName = "python"
 	case "c", "h":
 		lexerName = "c"
+	case "cpp", "cxx", "cc", "hpp", "hxx", "hh":
+		lexerName = "cpp"
 	case "java":
 		lexerName = "java"
 	case "js":
