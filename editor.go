@@ -134,6 +134,13 @@ type Bookmark struct {
 	Name string
 }
 
+// MeasureString is a helper that calculates the size of a string using the
+// current theme text size and a default text style. Fyne removed MeasureString
+// in v2, so this wrapper uses MeasureText with an empty style.
+func MeasureString(text string, size float32) fyne.Size {
+	return fyne.MeasureText(text, size, fyne.TextStyle{})
+}
+
 // IsDirty возвращает true, если есть несохраненные изменения
 func (e *EditorWidget) IsDirty() bool {
 	return e.isDirty
@@ -1544,15 +1551,15 @@ func (e *EditorWidget) updateIndentGuides() {
 		return
 	}
 
-	charWidth := fyne.MeasureString(" ", theme.TextSize()).Width
-	lineHeight := fyne.MeasureString("M", theme.TextSize()).Height
+	charWidth := MeasureString(" ", theme.TextSize()).Width
+	lineHeight := MeasureString("M", theme.TextSize()).Height
 
 	fyne.Do(func() {
 		e.indentContainer.Objects = nil
 		for _, guide := range e.indentGuides {
 			x := float32(guide.Level) * 4 * charWidth
 			y := float32(guide.Row) * lineHeight
-			line := canvas.NewLine(e.colors.LineNumber)
+			line := canvas.NewLine(e.colors.LineNumbers)
 			line.StrokeWidth = 1
 			line.Position1 = fyne.NewPos(x, y)
 			line.Position2 = fyne.NewPos(x, y+lineHeight)
