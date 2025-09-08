@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -111,8 +112,9 @@ type EditorWidget struct {
 	autoCompleteWidget *widget.PopUp
 
 	// Indent guides
-	indentGuides []IndentGuide
-	fileName     string
+	indentGuides    []IndentGuide
+	indentContainer *fyne.Container
+	fileName        string
 
 	vimMode VimMode
 
@@ -176,7 +178,8 @@ func (e *EditorWidget) SaveFile() error {
 		return fmt.Errorf("no file path specified")
 	}
 
-	err := ioutil.WriteFile(e.filePath, []byte(e.textContent), 0644)
+	content := e.GetFullText()
+	err := ioutil.WriteFile(e.filePath, []byte(content), 0644)
 	if err != nil {
 		return err
 	}
@@ -385,6 +388,7 @@ type FoldRange struct {
 	IsFolded    bool
 	IndentLevel int
 	Label       string
+	Lines       []string
 }
 
 // IndentGuide представляет направляющую отступа
@@ -451,8 +455,11 @@ func (e *EditorWidget) setupComponents() {
 	e.lineNumbers.TextStyle = fyne.TextStyle{Monospace: true}
 	e.updateLineNumbers()
 
+	// Контейнер для направляющих отступа
+	e.indentContainer = container.NewWithoutLayout()
+
 	// Создаем контейнер с прокруткой
-	editorLayer := container.NewMax(e.richContent, e.content)
+	editorLayer := container.NewMax(e.richContent, e.indentContainer, e.content)
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
 		editorContent = container.NewBorder(nil, nil, container.NewVBox(e.lineNumbers), nil, editorLayer)
@@ -525,11 +532,47 @@ func (e *EditorWidget) TypedRune(r rune) {
 	}
 }
 
-// TypedKey forwards key events to the underlying Entry widget.
+// TypedKey forwards key events to the underlying Entry widget with auto-indentation support.
 func (e *EditorWidget) TypedKey(event *fyne.KeyEvent) {
+	if e.config != nil && e.config.Editor.AutoIndent && event.Name == fyne.KeyReturn {
+		e.handleAutoIndent()
+		return
+	}
 	if e.content != nil {
 		e.content.TypedKey(event)
 	}
+}
+
+// handleAutoIndent inserts indentation on newline based on current line context.
+func (e *EditorWidget) handleAutoIndent() {
+	line := e.GetCurrentLine()
+	indent := e.getIndentSpaces(line)
+	trimmed := strings.TrimSpace(line)
+	if strings.HasSuffix(trimmed, "{") {
+		indent += 4
+	}
+	if strings.HasPrefix(trimmed, "}") && indent >= 4 {
+		indent -= 4
+	}
+	e.content.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
+	for i := 0; i < indent; i++ {
+		e.content.TypedRune(' ')
+	}
+}
+
+// getIndentSpaces counts leading spaces in a line.
+func (e *EditorWidget) getIndentSpaces(line string) int {
+	count := 0
+	for _, r := range line {
+		if r == ' ' {
+			count++
+		} else if r == '\t' {
+			count += 4
+		} else {
+			break
+		}
+	}
+	return count
 }
 
 // TappedSecondary обрабатывает правый клик мыши
@@ -1150,32 +1193,58 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 
 // FoldCurrentBlock добавляет текущую строку в свернутые диапазоны
 func (e *EditorWidget) FoldCurrentBlock() {
-	if e.foldedRanges == nil {
-		e.foldedRanges = make(map[int]FoldRange)
-	}
-	e.foldedRanges[e.cursorRow] = FoldRange{Start: e.cursorRow, End: e.cursorRow}
-	e.updateDisplay()
+	e.toggleFold(e.cursorRow)
 }
 
-// UnfoldCurrentBlock удаляет текущую строку из свернутых
+// UnfoldCurrentBlock раскрывает текущий свернутый блок
 func (e *EditorWidget) UnfoldCurrentBlock() {
-	if e.foldedRanges != nil {
-		delete(e.foldedRanges, e.cursorRow)
-		e.updateDisplay()
+	if _, ok := e.foldedRanges[e.cursorRow]; ok {
+		e.toggleFold(e.cursorRow)
 	}
 }
 
-// FoldAll сворачивает весь текст
+// FoldAll сворачивает все возможные блоки
 func (e *EditorWidget) FoldAll() {
-	total := e.getLineCount()
-	e.foldedRanges = map[int]FoldRange{0: {Start: 0, End: total - 1}}
-	e.updateDisplay()
+	lines := strings.Split(e.textContent, "\n")
+	for i := 0; i < len(lines); i++ {
+		e.toggleFold(i)
+	}
 }
 
 // UnfoldAll раскрывает весь текст
 func (e *EditorWidget) UnfoldAll() {
-	e.foldedRanges = make(map[int]FoldRange)
-	e.updateDisplay()
+	rows := make([]int, 0, len(e.foldedRanges))
+	for r := range e.foldedRanges {
+		rows = append(rows, r)
+	}
+	sort.Ints(rows)
+	for _, r := range rows {
+		e.toggleFold(r)
+	}
+}
+
+// GetFullText возвращает текст с раскрытыми свернутыми блоками
+func (e *EditorWidget) GetFullText() string {
+	if len(e.foldedRanges) == 0 {
+		return e.textContent
+	}
+	lines := strings.Split(e.textContent, "\n")
+	rows := make([]int, 0, len(e.foldedRanges))
+	for r := range e.foldedRanges {
+		rows = append(rows, r)
+	}
+	sort.Ints(rows)
+	for i := len(rows) - 1; i >= 0; i-- {
+		fr := e.foldedRanges[rows[i]]
+		start := fr.Start
+		if start+1 < len(lines) && strings.TrimSpace(lines[start+1]) == "/*...*/" {
+			lines = append(lines[:start+1], lines[start+2:]...)
+		}
+		if start+1 <= len(lines) {
+			lines = append(lines[:start+1], append(fr.Lines, lines[start+1:]...)...)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // SetVimMode устанавливает текущий Vim режим
@@ -1410,24 +1479,39 @@ func (e *EditorWidget) getBlockLabel(lines []string, startRow int) string {
 
 // toggleFold переключает свертывание блока кода
 func (e *EditorWidget) toggleFold(row int) {
-	if fold, exists := e.foldedRanges[row]; exists {
-		fold.IsFolded = !fold.IsFolded
-		e.foldedRanges[row] = fold
+	lines := strings.Split(e.textContent, "\n")
+	if fold, exists := e.foldedRanges[row]; exists && fold.IsFolded {
+		before := lines[:row+1]
+		after := lines[row+1:]
+		if len(after) > 0 && strings.TrimSpace(after[0]) == "/*...*/" {
+			after = after[1:]
+		}
+		expanded := append(before, append(fold.Lines, after...)...)
+		e.textContent = strings.Join(expanded, "\n")
+		delete(e.foldedRanges, row)
 	} else {
-		// Создаем новый fold
 		endRow := e.findBlockEnd(row)
 		if endRow > row {
+			hidden := append([]string(nil), lines[row+1:endRow+1]...)
 			e.foldedRanges[row] = FoldRange{
 				Start:       row,
 				End:         endRow,
 				IsFolded:    true,
-				IndentLevel: e.getIndentLevel(strings.Split(e.textContent, "\n")[row]),
-				Label:       e.getBlockLabel(strings.Split(e.textContent, "\n"), row),
+				IndentLevel: e.getIndentLevel(lines[row]),
+				Label:       e.getBlockLabel(lines, row),
+				Lines:       hidden,
 			}
+			collapsed := append(lines[:row+1], append([]string{"/*...*/"}, lines[endRow+1:]...)...)
+			e.textContent = strings.Join(collapsed, "\n")
 		}
 	}
 
-	e.updateDisplay()
+	fyne.Do(func() {
+		e.content.SetText(e.textContent)
+	})
+	e.updateLineNumbers()
+	e.applySyntaxHighlighting()
+	e.updateIndentGuides()
 }
 
 // findBlockEnd находит конец блока кода
@@ -1456,8 +1540,26 @@ func (e *EditorWidget) findBlockEnd(startRow int) int {
 
 // updateIndentGuides обновляет направляющие отступов
 func (e *EditorWidget) updateIndentGuides() {
-	// Реализация зависит от способа отрисовки направляющих в Fyne
-	// Пока оставляем заглушку
+	if e.indentContainer == nil || e.config == nil || !e.config.Editor.IndentGuides {
+		return
+	}
+
+	charWidth := fyne.MeasureString(" ", theme.TextSize()).Width
+	lineHeight := fyne.MeasureString("M", theme.TextSize()).Height
+
+	fyne.Do(func() {
+		e.indentContainer.Objects = nil
+		for _, guide := range e.indentGuides {
+			x := float32(guide.Level) * 4 * charWidth
+			y := float32(guide.Row) * lineHeight
+			line := canvas.NewLine(e.colors.LineNumber)
+			line.StrokeWidth = 1
+			line.Position1 = fyne.NewPos(x, y)
+			line.Position2 = fyne.NewPos(x, y+lineHeight)
+			e.indentContainer.Add(line)
+		}
+		e.indentContainer.Refresh()
+	})
 }
 
 // parseClickableElements парсит интерактивные элементы в коде
