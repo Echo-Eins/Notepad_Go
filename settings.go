@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -448,6 +449,13 @@ var (
 	keyBindingPattern = regexp.MustCompile(`^(Ctrl|Alt|Shift|\+|[A-Za-z0-9])+$`)
 )
 
+func toolPath(name string) string {
+	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
+		name += ".exe"
+	}
+	return filepath.Join("tools", name)
+}
+
 // DefaultConfig возвращает конфигурацию по умолчанию
 func DefaultConfig() *Config {
 	return &Config{
@@ -675,7 +683,7 @@ func DefaultConfig() *Config {
 				LanguageLinters: map[string]LanguageLinter{
 					"go": {
 						Name:             "golint",
-						Path:             "golint",
+						Path:             toolPath("golint"),
 						Args:             []string{},
 						Enabled:          true,
 						ErrorPattern:     `^(.+):(\d+):(\d+):\s*(.+)$`,
@@ -683,7 +691,7 @@ func DefaultConfig() *Config {
 					},
 					"python": {
 						Name:             "flake8",
-						Path:             "flake8",
+						Path:             toolPath("flake8"),
 						Args:             []string{"--max-line-length=120"},
 						Enabled:          true,
 						ErrorPattern:     `^(.+):(\d+):(\d+):\s*(.+)$`,
@@ -691,7 +699,7 @@ func DefaultConfig() *Config {
 					},
 					"rust": {
 						Name:             "clippy",
-						Path:             "clippy-driver",
+						Path:             toolPath("clippy-driver"),
 						Args:             []string{},
 						Enabled:          true,
 						ErrorPattern:     `error(?:\[(\w+)\])?: (.+)\s+--> ([^:]+):(\d+):(\d+)`,
@@ -699,7 +707,7 @@ func DefaultConfig() *Config {
 					},
 					"c": {
 						Name:             "clang-tidy",
-						Path:             "clang-tidy",
+						Path:             toolPath("clang-tidy"),
 						Args:             []string{},
 						Enabled:          true,
 						ErrorPattern:     `([^:]+):(\d+):(\d+):\s*(error|warning):\s*(.+)`,
@@ -707,7 +715,7 @@ func DefaultConfig() *Config {
 					},
 					"java": {
 						Name:             "checkstyle",
-						Path:             "checkstyle",
+						Path:             toolPath("checkstyle.jar"),
 						Args:             []string{"-c", "/google_checks.xml"},
 						Enabled:          true,
 						ErrorPattern:     `([^:]+):(\d+):\s*(error|warning):\s*(.+)`,
@@ -722,31 +730,31 @@ func DefaultConfig() *Config {
 				LanguageFormatters: map[string]LanguageFormatter{
 					"go": {
 						Name:    "gofmt",
-						Path:    "gofmt",
+						Path:    toolPath("gofmt"),
 						Args:    []string{},
 						Enabled: true,
 					},
 					"python": {
 						Name:    "black",
-						Path:    "black",
+						Path:    toolPath("black"),
 						Args:    []string{"--line-length=120"},
 						Enabled: true,
 					},
 					"rust": {
 						Name:    "rustfmt",
-						Path:    "rustfmt",
+						Path:    toolPath("rustfmt"),
 						Args:    []string{"--emit=stdout"},
 						Enabled: true,
 					},
 					"c": {
 						Name:    "clang-format",
-						Path:    "clang-format",
+						Path:    toolPath("clang-format"),
 						Args:    []string{"-style=LLVM"},
 						Enabled: true,
 					},
 					"java": {
 						Name:    "google-java-format",
-						Path:    "google-java-format",
+						Path:    toolPath("google-java-format.jar"),
 						Args:    []string{"-"},
 						Enabled: true,
 					},
