@@ -585,8 +585,10 @@ func (m *MinimapWidget) redrawMinimap() {
 	m.renderMutex.Lock()
 	defer m.renderMutex.Unlock()
 
-	// Очищаем canvas
-	m.canvas.Objects = []fyne.CanvasObject{}
+	// Очищаем canvas через Remove, чтобы избежать дублирования объектов
+	for _, obj := range m.canvas.Objects {
+		m.canvas.Remove(obj)
+	}
 
 	// Рисуем фон
 	m.drawBackground()
@@ -599,6 +601,9 @@ func (m *MinimapWidget) redrawMinimap() {
 
 	// Обновляем размер canvas
 	m.updateCanvasSize()
+
+	// Рисуем рамку поверх содержимого
+	m.drawBorder()
 
 	// Refresh
 	m.canvas.Refresh()
@@ -710,6 +715,16 @@ func (m *MinimapWidget) drawLine(line *MinimapLine, x, y float32) {
 		m.canvas.Add(txt)
 		currentX += txt.MinSize().Width
 	}
+}
+
+// drawBorder рисует рамку вокруг minimap
+func (m *MinimapWidget) drawBorder() {
+	border := canvas.NewRectangle(color.Transparent)
+	border.StrokeColor = m.colors.ViewportBorder
+	border.StrokeWidth = 1
+	border.Resize(fyne.NewSize(m.width, m.getContentHeight()))
+	border.Move(fyne.NewPos(0, 0))
+	m.canvas.Add(border)
 }
 
 // drawViewport рисует индикатор видимой области

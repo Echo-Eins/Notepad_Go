@@ -236,6 +236,11 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("Remove Bookmark", a.removeBookmark),
 	)
 
+	foldMenu := fyne.NewMenu("Folding",
+		fyne.NewMenuItem("Fold All", func() { a.editor.FoldAll() }),
+		fyne.NewMenuItem("Unfold All", func() { a.editor.UnfoldAll() }),
+	)
+
 	settingsMenu := fyne.NewMenu("Settings",
 		fyne.NewMenuItem("Preferences", a.showPreferences),
 		fyne.NewMenuItem("Key Bindings", a.showKeyBindings),
@@ -243,7 +248,7 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("About", a.showAbout),
 	)
 
-	mainMenu := fyne.NewMainMenu(fileMenu, editMenu, viewMenu, toolsMenu, bookmarkMenu, settingsMenu)
+	mainMenu := fyne.NewMainMenu(fileMenu, editMenu, viewMenu, toolsMenu, bookmarkMenu, foldMenu, settingsMenu)
 	a.mainWin.SetMainMenu(mainMenu)
 }
 

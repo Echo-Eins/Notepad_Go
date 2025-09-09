@@ -79,6 +79,7 @@ type EditorWidget struct {
 	// Фолдинг и сворачивание
 	foldedRanges     map[int]FoldRange
 	foldingSupported bool
+	autoFoldApplied  bool
 
 	// Bracket matching
 	matchingBrackets map[int]int
@@ -206,6 +207,8 @@ func (e *EditorWidget) LoadFile(path string) error {
 	e.filePath = path
 	e.fileName = filepath.Base(path)
 	e.textContent = string(content)
+	e.foldedRanges = make(map[int]FoldRange)
+	e.autoFoldApplied = false
 	e.content.SetText(e.textContent)
 	e.isDirty = false
 	e.lastModified = info.ModTime()
@@ -246,7 +249,8 @@ func (e *EditorWidget) SaveAsFile(path string) error {
 // SetContent устанавливает содержимое редактора
 func (e *EditorWidget) SetContent(content string) {
 	e.textContent = content
-	e.content.SetText(content)
+	e.foldedRanges = make(map[int]FoldRange)
+	e.autoFoldApplied = false
 	e.isDirty = true
 	e.updateDisplay()
 }
@@ -1818,21 +1822,22 @@ func (e *EditorWidget) updateCodeFolding() {
 			e.UnfoldAll()
 		}
 		e.indentGuides = nil
+		e.autoFoldApplied = false
 		return
 	}
 
 	lines := strings.Split(e.textContent, "\n")
 
-	if len(e.foldedRanges) == 0 {
+	if !e.autoFoldApplied {
 		if e.config.Editor.FoldComments {
 			lines = e.autoFoldComments(lines)
 		}
 		if e.config.Editor.FoldImports {
 			lines = e.autoFoldImports(lines)
 		}
+		e.textContent = strings.Join(lines, "\n")
+		e.autoFoldApplied = true
 	}
-
-	e.textContent = strings.Join(lines, "\n")
 
 	e.indentGuides = []IndentGuide{}
 
@@ -1858,11 +1863,8 @@ func (e *EditorWidget) updateCodeFolding() {
 			e.indentGuides = append(e.indentGuides, guide)
 		}
 	}
-	fyne.Do(func() {
-		e.content.SetText(e.textContent)
-	})
-	e.updateLineNumbers()
 	e.applySyntaxHighlighting()
+	e.updateLineNumbers()
 }
 
 // getIndentLevel возвращает уровень отступа строки
@@ -1938,12 +1940,8 @@ func (e *EditorWidget) toggleFold(row int) {
 			e.textContent = strings.Join(collapsed, "\n")
 		}
 	}
-
-	fyne.Do(func() {
-		e.content.SetText(e.textContent)
-	})
-	e.updateLineNumbers()
 	e.applySyntaxHighlighting()
+	e.updateLineNumbers()
 	e.updateIndentGuides()
 	e.updateFoldingIndicators()
 }
