@@ -113,9 +113,9 @@ var (
 	syntaxString   = color.NRGBA{0xCE, 0x91, 0x78, 0xFF} // #CE9178 - строки
 	syntaxComment  = color.NRGBA{0x6A, 0x99, 0x55, 0xFF} // #6A9955 - комментарии
 	syntaxNumber   = color.NRGBA{0xB5, 0xCE, 0xA8, 0xFF} // #B5CEA8 - числа
-	syntaxFunction = color.NRGBA{0xDC, 0xDC, 0xAA, 0xFF} // #DCDCAA - функции
+	syntaxFunction = color.NRGBA{0xbc, 0x76, 0x4f, 0xFF} // #DCDCAA - функции
 	syntaxType     = color.NRGBA{0x4E, 0xC9, 0xB0, 0xFF} // #4EC9B0 - типы данных
-	syntaxVariable = color.NRGBA{0x9C, 0xDC, 0xFE, 0xFF} // #9CDCFE - переменные
+	syntaxVariable = color.NRGBA{0xA9, 0xB7, 0xC6, 0xFF} // #A9B7C6 - переменные (JetBrains)
 
 	// Специальные элементы UI
 	scrollbarTrack    = color.NRGBA{0x2D, 0x2D, 0x30, 0xFF} // #2D2D30 - трек скроллбара
@@ -253,6 +253,7 @@ var (
 	lightEditorBackground = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF} // #FFFFFF
 	lightEditorGutter     = color.NRGBA{0xF5, 0xF5, 0xF5, 0xFF} // #F5F5F5
 	lightEditorSelection  = color.NRGBA{0x00, 0x78, 0xD4, 0x40} // #0078D4 с прозрачностью
+	lightSyntaxVariable   = color.NRGBA{0x00, 0x00, 0x00, 0xFF} // #000000 - переменные (JetBrains)
 )
 
 // Color для светлой темы
@@ -347,7 +348,7 @@ func GetEditorColors(isDark bool) EditorColors {
 			Number:        color.NRGBA{0x09, 0x88, 0x5A, 0xFF}, // Темно-зеленые числа
 			Function:      color.NRGBA{0x79, 0x5E, 0x26, 0xFF}, // Коричневые функции
 			Type:          color.NRGBA{0x26, 0x7F, 0x99, 0xFF}, // Сине-зеленые типы
-			Variable:      lightTextPrimary,                    // Обычный текст
+			Variable:      lightSyntaxVariable,                 // Переменные
 		}
 	}
 }

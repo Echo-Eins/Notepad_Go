@@ -736,6 +736,18 @@ func (e *EditorWidget) getIndentSpaces(line string) int {
 
 // TappedSecondary обрабатывает правый клик мыши
 func (e *EditorWidget) TappedSecondary(event *fyne.PointEvent) {
+	// Обновляем позицию курсора на строку под курсором
+	lineHeight := MeasureString("M", theme.TextSize()).Height
+	offsetY := event.Position.Y + e.scrollContainer.Offset.Y
+	line := int(offsetY / lineHeight)
+	lines := strings.Split(e.textContent, "\n")
+	if line < 0 {
+		line = 0
+	}
+	if line >= len(lines) {
+		line = len(lines) - 1
+	}
+	e.GoToPosition(line, 0)
 	e.showContextMenu(event.Position)
 }
 
@@ -2399,7 +2411,7 @@ func (e *EditorWidget) showContextMenu(pos fyne.Position) {
 	if c == nil {
 		return
 	}
-	menu := fyne.NewMenu("",
+	items := []*fyne.MenuItem{
 		fyne.NewMenuItem("Cut", func() {
 			e.content.TypedShortcut(&fyne.ShortcutCut{Clipboard: fyne.CurrentApp().Clipboard()})
 		}),
@@ -2414,13 +2426,17 @@ func (e *EditorWidget) showContextMenu(pos fyne.Position) {
 			e.SelectAll()
 		}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Fold Block", func() {
-			e.FoldCurrentBlock()
-		}),
-		fyne.NewMenuItem("Unfold Block", func() {
+	}
+	if _, ok := e.foldedRanges[e.cursorRow]; ok {
+		items = append(items, fyne.NewMenuItem("Unfold Block", func() {
 			e.UnfoldCurrentBlock()
-		}),
-	)
+		}))
+	} else {
+		items = append(items, fyne.NewMenuItem("Fold Block", func() {
+			e.FoldCurrentBlock()
+		}))
+	}
+	menu := fyne.NewMenu("", items...)
 	widget.NewPopUpMenu(menu, c).ShowAtPosition(pos)
 }
 func (e *EditorWidget) openURL(rawurl string) {

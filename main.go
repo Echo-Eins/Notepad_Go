@@ -230,6 +230,12 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("Build Project", a.buildProject),
 	)
 
+	bookmarkMenu := fyne.NewMenu("Bookmarks",
+		fyne.NewMenuItem("Add Bookmark", a.addBookmark),
+		fyne.NewMenuItem("Go to Bookmark", a.goToBookmark),
+		fyne.NewMenuItem("Remove Bookmark", a.removeBookmark),
+	)
+
 	settingsMenu := fyne.NewMenu("Settings",
 		fyne.NewMenuItem("Preferences", a.showPreferences),
 		fyne.NewMenuItem("Key Bindings", a.showKeyBindings),
@@ -237,7 +243,7 @@ func (a *App) createMainMenu() {
 		fyne.NewMenuItem("About", a.showAbout),
 	)
 
-	mainMenu := fyne.NewMainMenu(fileMenu, editMenu, viewMenu, toolsMenu, settingsMenu)
+	mainMenu := fyne.NewMainMenu(fileMenu, editMenu, viewMenu, toolsMenu, bookmarkMenu, settingsMenu)
 	a.mainWin.SetMainMenu(mainMenu)
 }
 
