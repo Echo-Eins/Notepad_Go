@@ -504,7 +504,7 @@ func (f *FoldingButton) CreateRenderer() fyne.WidgetRenderer {
 	if f.isFolded {
 		icon = theme.NavigateNextIcon()
 	} else {
-		icon = theme.ExpandMoreIcon()
+		icon = theme.MoveDownIcon()
 	}
 
 	iconWidget := widget.NewIcon(icon)
