@@ -275,6 +275,7 @@ func (m *MinimapWidget) setupComponents() {
 
 	// Создаем viewport indicator
 	m.viewport = NewViewportIndicator(m)
+	m.canvas.Add(m.viewport)
 
 	// Scroll container для больших файлов
 	m.scrollContainer = container.NewScroll(m.canvas)
@@ -717,20 +718,7 @@ func (m *MinimapWidget) drawViewport() {
 		return
 	}
 
-	// Фон viewport
-	bg := canvas.NewRectangle(m.colors.Viewport)
-	bg.Resize(fyne.NewSize(m.viewport.width, m.viewport.height))
-	bg.Move(fyne.NewPos(m.viewport.x, m.viewport.y))
-
-	// Граница viewport
-	border := canvas.NewRectangle(color.NRGBA{0, 0, 0, 0}) // Прозрачный фон
-	border.StrokeColor = m.colors.ViewportBorder
-	border.StrokeWidth = 1
-	border.Resize(fyne.NewSize(m.viewport.width, m.viewport.height))
-	border.Move(fyne.NewPos(m.viewport.x, m.viewport.y))
-
-	m.canvas.Add(bg)
-	m.canvas.Add(border)
+	m.canvas.Add(m.viewport)
 }
 
 // Обработка событий мыши
@@ -852,6 +840,19 @@ func (m *MinimapWidget) showContextMenu(pos fyne.Position) {
 	}
 
 	menu := fyne.NewMenu("",
+		fyne.NewMenuItem("Increase Text Size", func() {
+			m.SetFontSize(m.fontSize + 1)
+			m.Refresh()
+		}),
+		fyne.NewMenuItem("Decrease Text Size", func() {
+			newSize := m.fontSize - 1
+			if newSize < 1 {
+				newSize = 1
+			}
+			m.SetFontSize(newSize)
+			m.Refresh()
+		}),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Toggle Syntax Highlighting", func() {
 			m.SetShowSyntax(!m.showSyntax)
 			m.Refresh()
@@ -906,6 +907,19 @@ func (m *MinimapWidget) GetWidth() float32 {
 func (m *MinimapWidget) SetShowSyntax(show bool) {
 	m.showSyntax = show
 	m.needsRedraw = true
+}
+
+// SetFontSize устанавливает размер шрифта в minimap
+func (m *MinimapWidget) SetFontSize(size float32) {
+	if size <= 0 {
+		return
+	}
+	m.fontSize = size
+	m.lineHeight = size * 1.2
+	m.charWidth = size * 0.6
+	m.clearCaches()
+	m.needsRedraw = true
+	m.updateViewportPosition()
 }
 
 // SetShowLineNumbers включает/выключает номера строк
@@ -1018,6 +1032,8 @@ func (v *ViewportIndicator) updatePosition(x, y, width, height float32) {
 	v.height = height
 
 	fyne.Do(func() {
+		v.Move(fyne.NewPos(x, y))
+		v.Resize(fyne.NewSize(width, height))
 		v.Refresh()
 	})
 }
@@ -1042,6 +1058,34 @@ func (v *ViewportIndicator) CreateRenderer() fyne.WidgetRenderer {
 		rect:     rect,
 		border:   border,
 	}
+}
+
+// Dragged обрабатывает перетаскивание индикатора
+func (v *ViewportIndicator) Dragged(event *fyne.DragEvent) {
+	v.isDragging = true
+	newY := v.y + event.Dragged.DY
+
+	contentHeight := v.minimap.getContentHeight()
+	maxY := contentHeight - v.height
+	if newY < 0 {
+		newY = 0
+	}
+	if newY > maxY {
+		newY = maxY
+	}
+
+	v.updatePosition(0, newY, v.width, v.height)
+
+	if v.minimap.onScrollTo != nil && contentHeight > v.minimap.height {
+		scrollPos := newY / (contentHeight - v.minimap.height)
+		v.minimap.scrollPosition = scrollPos
+		v.minimap.onScrollTo(scrollPos)
+	}
+}
+
+// DragEnd завершает перетаскивание
+func (v *ViewportIndicator) DragEnd() {
+	v.isDragging = false
 }
 
 // ViewportRenderer methods

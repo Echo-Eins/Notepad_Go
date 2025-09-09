@@ -12,7 +12,10 @@ const animationDuration = 250 * time.Millisecond
 
 // AnimateShow smoothly reveals the object over animationDuration.
 func AnimateShow(obj fyne.CanvasObject) {
-	final := obj.MinSize()
+	final := obj.Size()
+	if final.Width == 0 || final.Height == 0 {
+		final = obj.MinSize()
+	}
 	obj.Resize(fyne.NewSize(0, 0))
 	obj.Show()
 	anim := canvas.NewSizeAnimation(fyne.NewSize(0, 0), final, animationDuration, func(s fyne.Size) {
