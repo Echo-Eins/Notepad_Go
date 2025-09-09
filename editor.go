@@ -748,7 +748,7 @@ func (e *EditorWidget) TappedSecondary(event *fyne.PointEvent) {
 		line = len(lines) - 1
 	}
 	e.GoToPosition(line, 0)
-	e.showContextMenu(event.Position)
+	e.showContextMenu(event)
 }
 
 // updateCursorPosition обновляет внутреннее состояние позиции курсора
@@ -1531,22 +1531,20 @@ func (e *EditorWidget) applyTokensToRichText() {
 func (e *EditorWidget) getTokenColor(tokenType chroma.TokenType) fyne.ThemeColorName {
 	switch {
 	case tokenType.InCategory(chroma.Keyword) || tokenType.InSubCategory(chroma.Keyword):
-		return theme.ColorNamePrimary
+		return colorKeyword
 	case tokenType.InCategory(chroma.String) || tokenType.InSubCategory(chroma.String):
-		return theme.ColorNameSuccess
+		return colorString
 	case tokenType.InCategory(chroma.Comment) || tokenType.InSubCategory(chroma.Comment):
-		return theme.ColorNameDisabled
+		return colorComment
 	case tokenType.InCategory(chroma.LiteralNumber) || tokenType.InCategory(chroma.Number) || tokenType.InSubCategory(chroma.Number):
-		return theme.ColorNameWarning
+		return colorNumber
 	case tokenType == chroma.NameFunction || tokenType.InSubCategory(chroma.NameFunction):
-		return theme.ColorNamePrimary
+		return colorFunction
 	case tokenType == chroma.NameVariable || tokenType.InSubCategory(chroma.NameVariable):
-		return theme.ColorNameWarning
+		return colorVariable
 	case tokenType == chroma.NameClass || tokenType.InSubCategory(chroma.NameClass) ||
 		tokenType == chroma.KeywordType || tokenType.InSubCategory(chroma.KeywordType):
-		return theme.ColorNameSuccess
-	case tokenType.InCategory(chroma.Name) || tokenType.InSubCategory(chroma.Name):
-		return theme.ColorNameForeground
+		return colorType
 	default:
 		return theme.ColorNameForeground
 	}

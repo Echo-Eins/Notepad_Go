@@ -7,6 +7,16 @@ import (
 	"fyne.io/fyne/v2/theme"
 )
 
+const (
+	colorKeyword  fyne.ThemeColorName = "editorKeyword"
+	colorString   fyne.ThemeColorName = "editorString"
+	colorComment  fyne.ThemeColorName = "editorComment"
+	colorNumber   fyne.ThemeColorName = "editorNumber"
+	colorFunction fyne.ThemeColorName = "editorFunction"
+	colorType     fyne.ThemeColorName = "editorType"
+	colorVariable fyne.ThemeColorName = "editorVariable"
+)
+
 // AppTheme оборачивает базовую тему и позволяет изменять параметры отображения
 type AppTheme struct {
 	base         fyne.Theme
@@ -180,6 +190,22 @@ func (t *DarkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) c
 	case theme.ColorNameShadow:
 		return color.NRGBA{0x00, 0x00, 0x00, 0x40}
 
+		// Подсветка синтаксиса
+	case colorKeyword:
+		return syntaxKeyword
+	case colorString:
+		return syntaxString
+	case colorComment:
+		return syntaxComment
+	case colorNumber:
+		return syntaxNumber
+	case colorFunction:
+		return syntaxFunction
+	case colorType:
+		return syntaxType
+	case colorVariable:
+		return syntaxVariable
+
 	default:
 		// Fallback на стандартную темную тему
 		return theme.DefaultTheme().Color(name, variant)
@@ -253,7 +279,13 @@ var (
 	lightEditorBackground = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF} // #FFFFFF
 	lightEditorGutter     = color.NRGBA{0xF5, 0xF5, 0xF5, 0xFF} // #F5F5F5
 	lightEditorSelection  = color.NRGBA{0x00, 0x78, 0xD4, 0x40} // #0078D4 с прозрачностью
-	lightSyntaxVariable   = color.NRGBA{0x00, 0x00, 0x00, 0xFF} // #000000 - переменные (JetBrains)
+	lightSyntaxKeyword    = color.NRGBA{0x00, 0x00, 0xFF, 0xFF} // Синие ключевые слова
+	lightSyntaxString     = color.NRGBA{0xA3, 0x15, 0x15, 0xFF} // Красные строки
+	lightSyntaxComment    = color.NRGBA{0x00, 0x80, 0x00, 0xFF} // Зеленые комментарии
+	lightSyntaxNumber     = color.NRGBA{0x09, 0x88, 0x5A, 0xFF} // Темно-зеленые числа
+	lightSyntaxFunction   = color.NRGBA{0x79, 0x5E, 0x26, 0xFF} // Коричневые функции
+	lightSyntaxType       = color.NRGBA{0x26, 0x7F, 0x99, 0xFF} // Сине-зеленые типы
+	lightSyntaxVariable   = color.NRGBA{0x00, 0x00, 0x00, 0xFF} // Переменные
 )
 
 // Color для светлой темы
@@ -277,6 +309,20 @@ func (t *LightTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) 
 		return lightBorderDefault
 	case theme.ColorNameSelection:
 		return lightEditorSelection
+	case colorKeyword:
+		return lightSyntaxKeyword
+	case colorString:
+		return lightSyntaxString
+	case colorComment:
+		return lightSyntaxComment
+	case colorNumber:
+		return lightSyntaxNumber
+	case colorFunction:
+		return lightSyntaxFunction
+	case colorType:
+		return lightSyntaxType
+	case colorVariable:
+		return lightSyntaxVariable
 	default:
 		return theme.DefaultTheme().Color(name, variant)
 	}
@@ -326,13 +372,13 @@ func GetEditorColors(isDark bool) EditorColors {
 			Cursor:        editorCursor,
 			LineHighlight: editorLineHighlight,
 			LineNumbers:   textSecondary,
-			Keyword:       syntaxKeyword,
-			String:        syntaxString,
-			Comment:       syntaxComment,
-			Number:        syntaxNumber,
-			Function:      syntaxFunction,
-			Type:          syntaxType,
-			Variable:      syntaxVariable,
+			Keyword:       lightSyntaxKeyword,
+			String:        lightSyntaxString,
+			Comment:       lightSyntaxComment,
+			Number:        lightSyntaxNumber,
+			Function:      lightSyntaxFunction,
+			Type:          lightSyntaxType,
+			Variable:      lightSyntaxVariable,
 		}
 	} else {
 		return EditorColors{
