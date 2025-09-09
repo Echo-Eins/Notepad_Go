@@ -761,7 +761,7 @@ func (m *MinimapWidget) Tapped(event *fyne.PointEvent) {
 
 // TappedSecondary обрабатывает правый клик (контекстное меню)
 func (m *MinimapWidget) TappedSecondary(event *fyne.PointEvent) {
-	m.showContextMenu(event.Position)
+	m.showContextMenu(event.AbsolutePosition)
 }
 
 // MouseIn обрабатывает наведение мыши

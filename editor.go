@@ -2406,7 +2406,7 @@ func (e *EditorWidget) GetContent() string  { return e.textContent }
 func (e *EditorWidget) GetFilePath() string { return e.filePath }
 func (e *EditorWidget) GetFileName() string { return e.fileName }
 
-func (e *EditorWidget) showContextMenu(pos fyne.Position) {
+func (e *EditorWidget) showContextMenu(ev *fyne.PointEvent) {
 	c := fyne.CurrentApp().Driver().CanvasForObject(e.content)
 	if c == nil {
 		return
@@ -2427,17 +2427,22 @@ func (e *EditorWidget) showContextMenu(pos fyne.Position) {
 		}),
 		fyne.NewMenuItemSeparator(),
 	}
-	if _, ok := e.foldedRanges[e.cursorRow]; ok {
-		items = append(items, fyne.NewMenuItem("Unfold Block", func() {
-			e.UnfoldCurrentBlock()
-		}))
-	} else {
-		items = append(items, fyne.NewMenuItem("Fold Block", func() {
-			e.FoldCurrentBlock()
-		}))
+
+	if e.config != nil && e.config.Editor.CodeFolding {
+		items = append(items, fyne.NewMenuItemSeparator())
+		if _, ok := e.foldedRanges[e.cursorRow]; ok {
+			items = append(items, fyne.NewMenuItem("Unfold Block", func() {
+				e.UnfoldCurrentBlock()
+			}))
+		} else {
+			items = append(items, fyne.NewMenuItem("Fold Block", func() {
+				e.FoldCurrentBlock()
+			}))
+		}
 	}
+
 	menu := fyne.NewMenu("", items...)
-	widget.NewPopUpMenu(menu, c).ShowAtPosition(pos)
+	widget.NewPopUpMenu(menu, c).ShowAtPosition(ev.AbsolutePosition)
 }
 func (e *EditorWidget) openURL(rawurl string) {
 	u, err := url.Parse(rawurl)
