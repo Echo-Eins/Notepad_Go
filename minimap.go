@@ -543,8 +543,19 @@ func (m *MinimapWidget) UpdateViewport(top, height float32) {
 // updateViewport внутренний метод обновления viewport
 func (m *MinimapWidget) updateViewport(top, height float32) {
 	m.viewportTop = top
-	m.viewportHeight = height
-	m.visibleLines = int(height / m.lineHeight)
+	// Convert editor viewport height to minimap scale
+	if m.editor != nil && m.editor.config != nil && m.editor.config.Editor.FontSize > 0 {
+		scale := m.fontSize / m.editor.config.Editor.FontSize
+		m.viewportHeight = height * scale
+	} else {
+		m.viewportHeight = height
+	}
+
+	if m.viewportHeight > m.getContentHeight() {
+		m.viewportHeight = m.getContentHeight()
+	}
+
+	m.visibleLines = int(m.viewportHeight / m.lineHeight)
 
 	m.updateViewportPosition()
 }
@@ -558,7 +569,7 @@ func (m *MinimapWidget) updateViewportPosition() {
 	contentHeight := m.getContentHeight()
 
 	// Рассчитываем позицию viewport
-	y := m.scrollPosition * (contentHeight - m.height)
+	y := m.scrollPosition * (contentHeight - m.viewportHeight)
 	if y < 0 {
 		y = 0
 	}
@@ -920,8 +931,21 @@ func (m *MinimapWidget) GetWidth() float32 {
 
 // SetShowSyntax включает/выключает подсветку синтаксиса
 func (m *MinimapWidget) SetShowSyntax(show bool) {
+	if m.showSyntax == show {
+		return
+	}
 	m.showSyntax = show
 	m.needsRedraw = true
+	if show {
+		if m.editor != nil && m.editor.syntaxTokens != nil {
+			m.applySyntaxHighlighting()
+		}
+	} else {
+		m.syntaxTokens = nil
+		m.processContent()
+	}
+
+	m.clearCaches()
 }
 
 // SetFontSize устанавливает размер шрифта в minimap
@@ -932,7 +956,13 @@ func (m *MinimapWidget) SetFontSize(size float32) {
 	m.fontSize = size
 	m.lineHeight = size * 1.2
 	m.charWidth = size * 0.6
+	m.maxCharsPerLine = int(m.width / m.charWidth)
 	m.clearCaches()
+	m.processContent()
+	if m.showSyntax && m.editor != nil && m.editor.syntaxTokens != nil {
+		m.applySyntaxHighlighting()
+	}
+	m.viewportHeight = float32(m.visibleLines) * m.lineHeight
 	m.needsRedraw = true
 	m.updateViewportPosition()
 }
