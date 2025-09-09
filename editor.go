@@ -118,7 +118,11 @@ type EditorWidget struct {
 	// Indent guides
 	indentGuides    []IndentGuide
 	indentContainer *fyne.Container
-	fileName        string
+
+	// Folding indicators
+	foldingIndicators  map[int]FoldingIndicator
+	indicatorContainer *fyne.Container
+	fileName           string
 
 	vimMode VimMode
 
@@ -477,6 +481,44 @@ type IndentGuide struct {
 	OnClick    func()
 }
 
+// FoldingIndicator описывает индикатор фолдинга на конкретной строке
+type FoldingIndicator struct {
+	Row       int
+	IsFolded  bool
+	CanFold   bool
+	StartLine int
+	EndLine   int
+}
+
+// FoldingButton - кнопка-индикатор для управления фолдингом
+type FoldingButton struct {
+	widget.BaseWidget
+	editor   *EditorWidget
+	row      int
+	isFolded bool
+}
+
+// CreateRenderer создает визуальное представление кнопки
+func (f *FoldingButton) CreateRenderer() fyne.WidgetRenderer {
+	var icon fyne.Resource
+	if f.isFolded {
+		icon = theme.NavigateNextIcon()
+	} else {
+		icon = theme.ExpandMoreIcon()
+	}
+
+	iconWidget := widget.NewIcon(icon)
+	return widget.NewSimpleRenderer(iconWidget)
+}
+
+// Tapped обрабатывает клик по индикатору
+func (f *FoldingButton) Tapped(_ *fyne.PointEvent) {
+	f.editor.toggleFold(f.row)
+}
+
+// TappedSecondary обрабатывает правый клик (резерв на будущее)
+func (f *FoldingButton) TappedSecondary(_ *fyne.PointEvent) {}
+
 // BracketPair представляет пару скобок
 type BracketPair struct {
 	Open      TextPosition
@@ -535,13 +577,19 @@ func (e *EditorWidget) setupComponents() {
 	// Контейнер для направляющих отступа
 	e.indentContainer = container.NewWithoutLayout()
 
+	// Контейнер для индикаторов фолдинга
+	e.indicatorContainer = container.NewWithoutLayout()
+
 	// Создаем контейнер с прокруткой
 	// Размещаем RichText под Entry, чтобы цветная разметка
 	// не перекрывала курсор и выделение текста.
-	editorLayer := container.NewStack(e.richContent, e.content, e.indentContainer) // editorLayer := container.NewMax(e.content, e.indentContainer, e.richContent)
+	editorLayer := container.NewStack(e.richContent, e.content, e.indentContainer)
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		editorContent = container.NewBorder(nil, nil, container.NewVBox(e.lineNumbers), nil, editorLayer)
+		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbers)
+		editorContent = container.NewBorder(nil, nil, leftPanel, nil, editorLayer)
+	} else if e.config.Editor.CodeFolding {
+		editorContent = container.NewBorder(nil, nil, e.indicatorContainer, nil, editorLayer)
 	} else {
 		editorContent = editorLayer
 	}
@@ -551,6 +599,7 @@ func (e *EditorWidget) setupComponents() {
 
 	// Основной контейнер
 	e.mainContainer = container.NewMax(e.scrollContainer) // Используем container.NewMax вместо Border
+	e.updateFoldingIndicators()
 }
 
 // configureEntryOverlay скрывает фон и текст стандартного Entry,
@@ -747,6 +796,9 @@ func (e *EditorWidget) TappedSecondary(event *fyne.PointEvent) {
 	if line >= len(lines) {
 		line = len(lines) - 1
 	}
+	if start, ok := e.isLineInFoldedRange(line); ok {
+		line = start
+	}
 	e.GoToPosition(line, 0)
 	e.showContextMenu(event)
 }
@@ -938,6 +990,9 @@ func (e *EditorWidget) updateDisplay() {
 
 	// Обновляем отступы
 	e.updateIndentGuides()
+
+	// Обновляем индикаторы фолдинга
+	e.updateFoldingIndicators()
 
 	// Обновляем номера строк и содержимое в главном потоке UI
 	fyne.Do(func() {
@@ -1370,26 +1425,44 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 
 // FoldCurrentBlock добавляет текущую строку в свернутые диапазоны
 func (e *EditorWidget) FoldCurrentBlock() {
-	if e.config != nil && e.config.Editor.CodeFolding {
-		e.toggleFold(e.cursorRow)
+	if e.config == nil || !e.config.Editor.CodeFolding {
+		return
 	}
+
+	if _, ok := e.isLineInFoldedRange(e.cursorRow); ok {
+		return
+	}
+	lines := strings.Split(e.textContent, "\n")
+	row := e.cursorRow
+	for row >= 0 && !e.isBlockStart(lines[row]) {
+		row--
+	}
+	if row < 0 {
+		return
+	}
+	e.toggleFold(row)
 }
 
 // UnfoldCurrentBlock раскрывает текущий свернутый блок
 func (e *EditorWidget) UnfoldCurrentBlock() {
-	if _, ok := e.foldedRanges[e.cursorRow]; ok {
-		e.toggleFold(e.cursorRow)
+	if start, ok := e.isLineInFoldedRange(e.cursorRow); ok {
+		e.toggleFold(start)
 	}
 }
 
 // FoldAll сворачивает все возможные блоки
 func (e *EditorWidget) FoldAll() {
-	if e.config != nil && e.config.Editor.CodeFolding {
-		lines := strings.Split(e.textContent, "\n")
-		for i := 0; i < len(lines); i++ {
+	if e.config == nil || !e.config.Editor.CodeFolding {
+		return
+	}
+
+	lines := strings.Split(e.textContent, "\n")
+	for i, line := range lines {
+		if e.isBlockStart(line) {
 			e.toggleFold(i)
 		}
 	}
+	e.updateFoldingIndicators()
 }
 
 // UnfoldAll раскрывает весь текст
@@ -1402,6 +1475,107 @@ func (e *EditorWidget) UnfoldAll() {
 	for _, r := range rows {
 		e.toggleFold(r)
 	}
+	e.updateFoldingIndicators()
+}
+
+// ToggleFoldAtCursor сворачивает или разворачивает блок под курсором
+func (e *EditorWidget) ToggleFoldAtCursor() {
+	if start, ok := e.isLineInFoldedRange(e.cursorRow); ok {
+		e.toggleFold(start)
+	} else {
+		e.FoldCurrentBlock()
+	}
+}
+
+// isLineInFoldedRange проверяет, находится ли строка внутри свернутого диапазона
+func (e *EditorWidget) isLineInFoldedRange(row int) (int, bool) {
+	for start, r := range e.foldedRanges {
+		if row >= start && row <= r.End {
+			return start, true
+		}
+	}
+	return -1, false
+}
+
+// isBlockStart определяет, может ли строка быть началом блока кода
+func (e *EditorWidget) isBlockStart(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasSuffix(trimmed, "{") {
+		return true
+	}
+	if e.language == "python" && strings.HasSuffix(trimmed, ":") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
+		return true
+	}
+	return false
+}
+
+// updateFoldingIndicators пересчитывает индикаторы фолдинга
+func (e *EditorWidget) updateFoldingIndicators() {
+	if e.indicatorContainer == nil {
+		return
+	}
+
+	if e.config == nil || !e.config.Editor.CodeFolding {
+		fyne.Do(func() {
+			e.indicatorContainer.Objects = nil
+			e.indicatorContainer.Refresh()
+		})
+		return
+	}
+
+	e.foldingIndicators = make(map[int]FoldingIndicator)
+	lines := strings.Split(e.textContent, "\n")
+	for i, line := range lines {
+		if e.isBlockStart(line) {
+			endRow := e.findBlockEnd(i)
+			if endRow > i {
+				_, isFolded := e.foldedRanges[i]
+				e.foldingIndicators[i] = FoldingIndicator{
+					Row:       i,
+					IsFolded:  isFolded,
+					CanFold:   true,
+					StartLine: i,
+					EndLine:   endRow,
+				}
+			}
+		}
+	}
+
+	e.drawFoldingIndicators()
+}
+
+// drawFoldingIndicators рисует индикаторы фолдинга
+func (e *EditorWidget) drawFoldingIndicators() {
+	if e.indicatorContainer == nil {
+		return
+	}
+
+	fyne.Do(func() {
+		e.indicatorContainer.Objects = nil
+
+		lineHeight := MeasureString("M", theme.TextSize()).Height
+		indicatorSize := float32(12)
+		marginLeft := float32(5)
+
+		for row, ind := range e.foldingIndicators {
+			y := float32(row)*lineHeight + (lineHeight-indicatorSize)/2
+
+			btn := &FoldingButton{editor: e, row: row, isFolded: ind.IsFolded}
+			btn.ExtendBaseWidget(btn)
+			btn.Resize(fyne.NewSize(indicatorSize, indicatorSize))
+			btn.Move(fyne.NewPos(marginLeft, y))
+
+			e.indicatorContainer.Add(btn)
+		}
+
+		e.indicatorContainer.Refresh()
+	})
 }
 
 // GetFullText возвращает текст с раскрытыми свернутыми блоками
@@ -1754,6 +1928,7 @@ func (e *EditorWidget) toggleFold(row int) {
 	e.updateLineNumbers()
 	e.applySyntaxHighlighting()
 	e.updateIndentGuides()
+	e.updateFoldingIndicators()
 }
 
 // autoFoldComments сворачивает блоки комментариев
@@ -2268,6 +2443,8 @@ func (e *EditorWidget) onTextChanged() {
 	e.isDirty = true
 	e.resetAutoSaveTimer()
 
+	e.updateFoldingIndicators()
+
 	// Обновляем подсветку синтаксиса (инкрементально)
 	go func() {
 		time.Sleep(250 * time.Millisecond) // Debounce
@@ -2428,15 +2605,19 @@ func (e *EditorWidget) showContextMenu(ev *fyne.PointEvent) {
 
 	if e.config != nil && e.config.Editor.CodeFolding {
 		items = append(items, fyne.NewMenuItemSeparator())
-		if _, ok := e.foldedRanges[e.cursorRow]; ok {
+		if start, ok := e.isLineInFoldedRange(e.cursorRow); ok {
 			items = append(items, fyne.NewMenuItem("Unfold Block", func() {
-				e.UnfoldCurrentBlock()
+				e.toggleFold(start)
 			}))
 		} else {
 			items = append(items, fyne.NewMenuItem("Fold Block", func() {
 				e.FoldCurrentBlock()
 			}))
 		}
+		items = append(items,
+			fyne.NewMenuItem("Fold All", func() { e.FoldAll() }),
+			fyne.NewMenuItem("Unfold All", func() { e.UnfoldAll() }),
+		)
 	}
 
 	menu := fyne.NewMenu("", items...)
