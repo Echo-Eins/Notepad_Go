@@ -1530,15 +1530,32 @@ func (e *EditorWidget) updateFoldingIndicators() {
 	}
 
 	e.foldingIndicators = make(map[int]FoldingIndicator)
+
+	// Сначала добавляем индикаторы для уже свернутых диапазонов,
+	// поскольку их конец нельзя вычислить на основе текущего текста.
+	for start, fr := range e.foldedRanges {
+		e.foldingIndicators[start] = FoldingIndicator{
+			Row:       start,
+			IsFolded:  true,
+			CanFold:   true,
+			StartLine: start,
+			EndLine:   fr.End,
+		}
+	}
+
+	// Теперь ищем новые потенциальные диапазоны сворачивания.
 	lines := strings.Split(e.textContent, "\n")
 	for i, line := range lines {
+		if _, exists := e.foldingIndicators[i]; exists {
+			// Индикатор уже добавлен (свернутый блок)
+			continue
+		}
 		if e.isBlockStart(line) {
 			endRow := e.findBlockEnd(i)
 			if endRow > i {
-				_, isFolded := e.foldedRanges[i]
 				e.foldingIndicators[i] = FoldingIndicator{
 					Row:       i,
-					IsFolded:  isFolded,
+					IsFolded:  false,
 					CanFold:   true,
 					StartLine: i,
 					EndLine:   endRow,
