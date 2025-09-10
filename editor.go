@@ -379,6 +379,16 @@ func (e *EditorWidget) getLineCount() int {
 	return len(strings.Split(e.textContent, "\n"))
 }
 
+// getContentHeight рассчитывает общую высоту текста редактора.
+// Метод используется вспомогательными виджетами (например, minimap)
+// для синхронизации прокрутки и поэтому должен корректно отражать
+// фактический размер содержимого. Высота определяется как произведение
+// числа строк на высоту одной строки в текущей теме оформления.
+func (e *EditorWidget) getContentHeight() float32 {
+	lineHeight := MeasureString("M", theme.TextSize()).Height
+	return float32(e.getLineCount()) * lineHeight
+}
+
 // updateLineNumbers пересчитывает и обновляет виджет номеров строк
 func (e *EditorWidget) updateLineNumbers() {
 	if e.lineNumbers == nil {

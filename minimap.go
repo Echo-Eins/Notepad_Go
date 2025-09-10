@@ -309,7 +309,10 @@ func (m *MinimapWidget) startUpdateWorker() {
 
 		for {
 			select {
-			case update := <-m.updateChan:
+			case update, ok := <-m.updateChan:
+				if !ok {
+					return
+				}
 				m.handleUpdate(update)
 
 			case <-ticker.C:
@@ -647,7 +650,11 @@ func (m *MinimapWidget) updateViewport(top, height float32) {
 		}
 	} else {
 		// Fallback на основе переданной высоты
-		scale := m.fontSize / m.editor.config.Editor.FontSize
+		editorFontSize := float32(12)
+		if m.editor != nil && m.editor.config != nil && m.editor.config.Editor.FontSize > 0 {
+			editorFontSize = m.editor.config.Editor.FontSize
+		}
+		scale := m.fontSize / editorFontSize
 		m.viewportHeight = height * scale
 	}
 
