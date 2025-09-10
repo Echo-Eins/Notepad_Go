@@ -1532,6 +1532,9 @@ func (e *EditorWidget) isBlockStart(line string) bool {
 	if strings.HasSuffix(trimmed, "{") {
 		return true
 	}
+	if strings.HasPrefix(trimmed, "import (") {
+		return true
+	}
 	if e.language == "python" && strings.HasSuffix(trimmed, ":") {
 		return true
 	}
@@ -2083,12 +2086,13 @@ func (e *EditorWidget) updateIndentGuides() {
 
 	charWidth := MeasureString(" ", theme.TextSize()).Width
 	lineHeight := MeasureString("M", theme.TextSize()).Height
+	innerPad := e.content.Theme().Size(theme.SizeNameInnerPadding) / 1.90
 
 	fyne.Do(func() {
 		e.indentContainer.Objects = nil
 		for _, guide := range e.indentGuides {
 			x := float32(guide.Level) * 4 * charWidth
-			y := float32(guide.Row) * lineHeight
+			y := float32(guide.Row)*lineHeight + innerPad
 			line := canvas.NewLine(e.colors.LineNumbers)
 			line.StrokeWidth = 1
 			line.Position1 = fyne.NewPos(x, y)
