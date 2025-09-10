@@ -78,6 +78,10 @@ type MinimapWidget struct {
 	// Callbacks
 	onScrollTo  func(float32)
 	onLineClick func(int)
+
+	// Независимое управление подсветкой
+	syntaxEnabled      bool           // Независимый флаг для подсветки в minimap
+	cachedSyntaxTokens []chroma.Token // Кэшированные токены
 }
 
 // ViewportIndicator - индикатор видимой области в редакторе
@@ -208,7 +212,7 @@ func NewMinimap(editor *EditorWidget) *MinimapWidget {
 		charWidth:       charWidth,
 		fontSize:        fontSize,
 		maxCharsPerLine: editor.config.Minimap.MaxCharsPerLine,
-		showSyntax:      editor.config.Minimap.ShowSyntax,
+		syntaxEnabled:   editor.config.Minimap.ShowSyntax, // Используем syntaxEnabled
 		showLineNumbers: editor.config.Minimap.ShowLineNumbers,
 		smoothScrolling: editor.config.Minimap.SmoothScrolling,
 		autoHide:        editor.config.Minimap.AutoHide,
@@ -221,6 +225,9 @@ func NewMinimap(editor *EditorWidget) *MinimapWidget {
 	minimap.SetupColors()
 	minimap.setupComponents()
 	minimap.startUpdateWorker()
+
+	// Добавляем валидацию после инициализации
+	minimap.validateState()
 
 	return minimap
 }
@@ -376,15 +383,13 @@ func (m *MinimapWidget) setContent(content string) {
 }
 
 // processContent обрабатывает содержимое для отображения
+// processContent обрабатывает содержимое для отображения
 func (m *MinimapWidget) processContent() {
 	m.coloredLines = make([]*MinimapLine, len(m.lines))
 
 	for i, line := range m.lines {
-		// Обрезаем слишком длинные строки
-		trimmed := line
-		if len(line) > m.maxCharsPerLine {
-			trimmed = line[:m.maxCharsPerLine] + "..."
-		}
+		// Умная обрезка с учетом ширины
+		trimmed := m.smartTrimLine(line)
 
 		minimapLine := &MinimapLine{
 			LineNumber:     i + 1,
@@ -411,14 +416,92 @@ func (m *MinimapWidget) processContent() {
 	}
 }
 
+// smartTrimLine интеллектуально обрезает строку с учетом содержимого
+func (m *MinimapWidget) smartTrimLine(line string) string {
+	if len(line) <= m.maxCharsPerLine {
+		return line
+	}
+
+	// Сохраняем начальные пробелы для отступов
+	leadingSpaces := 0
+	for _, ch := range line {
+		if ch == ' ' || ch == '\t' {
+			leadingSpaces++
+		} else {
+			break
+		}
+	}
+
+	// Обрезаем с учетом отступов
+	maxContentChars := m.maxCharsPerLine - 3 // Резервируем место для "..."
+	if leadingSpaces > maxContentChars/2 {
+		// Если слишком большой отступ, показываем его частично
+		leadingSpaces = maxContentChars / 2
+	}
+
+	prefix := line[:leadingSpaces]
+	content := line[leadingSpaces:]
+
+	if len(content) > maxContentChars-leadingSpaces {
+		content = content[:maxContentChars-leadingSpaces] + "…"
+	}
+
+	return prefix + content
+}
+
+func (m *MinimapWidget) validateState() {
+	// Проверка размеров
+	if m.width < 50 {
+		m.width = 50
+	}
+	if m.width > 400 {
+		m.width = 400
+	}
+
+	if m.fontSize < 1 {
+		m.fontSize = 1
+	}
+	if m.fontSize > 10 {
+		m.fontSize = 10
+	}
+
+	// Проверка viewport
+	if m.viewportHeight < m.lineHeight {
+		m.viewportHeight = m.lineHeight
+	}
+
+	contentHeight := m.getContentHeight()
+	if m.viewportHeight > contentHeight {
+		m.viewportHeight = contentHeight
+	}
+
+	// Проверка позиции прокрутки
+	if m.scrollPosition < 0 {
+		m.scrollPosition = 0
+	}
+	if m.scrollPosition > 1 {
+		m.scrollPosition = 1
+	}
+}
+
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (m *MinimapWidget) applySyntaxHighlighting() {
-	if m.editor == nil || m.editor.syntaxTokens == nil {
+	if !m.syntaxEnabled {
+		return // Не применяем подсветку если она отключена для minimap
+	}
+
+	if m.editor == nil || (m.editor.syntaxTokens == nil && m.cachedSyntaxTokens == nil) {
 		return
 	}
 
-	// Получаем токены из редактора
-	m.syntaxTokens = m.editor.syntaxTokens
+	// Используем кэшированные токены или получаем новые
+	if m.cachedSyntaxTokens != nil {
+		m.syntaxTokens = m.cachedSyntaxTokens
+	} else if m.editor.syntaxTokens != nil {
+		m.cachedSyntaxTokens = make([]chroma.Token, len(m.editor.syntaxTokens))
+		copy(m.cachedSyntaxTokens, m.editor.syntaxTokens)
+		m.syntaxTokens = m.cachedSyntaxTokens
+	}
 
 	// Применяем цвета к сегментам
 	m.applyTokensToMinimap()
@@ -543,21 +626,69 @@ func (m *MinimapWidget) UpdateViewport(top, height float32) {
 // updateViewport внутренний метод обновления viewport
 func (m *MinimapWidget) updateViewport(top, height float32) {
 	m.viewportTop = top
-	// Convert editor viewport height to minimap scale
-	if m.editor != nil && m.editor.config != nil && m.editor.config.Editor.FontSize > 0 {
+
+	// Правильный расчет высоты viewport относительно общего содержимого
+	if m.editor != nil && m.editor.scrollContainer != nil {
+		// Получаем размеры редактора и его содержимого
+		editorHeight := m.editor.scrollContainer.Size().Height
+		editorContentHeight := m.editor.getContentHeight()
+
+		if editorContentHeight > 0 {
+			// Рассчитываем видимый процент содержимого
+			visibleRatio := editorHeight / editorContentHeight
+			if visibleRatio > 1.0 {
+				visibleRatio = 1.0
+			}
+
+			// Применяем этот процент к высоте minimap
+			m.viewportHeight = m.getContentHeight() * visibleRatio
+		} else {
+			m.viewportHeight = m.height
+		}
+	} else {
+		// Fallback на основе переданной высоты
 		scale := m.fontSize / m.editor.config.Editor.FontSize
 		m.viewportHeight = height * scale
-	} else {
-		m.viewportHeight = height
 	}
 
+	// Ограничиваем минимальную высоту viewport
+	minHeight := m.lineHeight * 2
+	if m.viewportHeight < minHeight {
+		m.viewportHeight = minHeight
+	}
+
+	// Не позволяем viewport быть больше содержимого
 	if m.viewportHeight > m.getContentHeight() {
 		m.viewportHeight = m.getContentHeight()
 	}
 
 	m.visibleLines = int(m.viewportHeight / m.lineHeight)
-
 	m.updateViewportPosition()
+
+}
+
+// syncWithEditor синхронизирует minimap с редактором
+func (m *MinimapWidget) syncWithEditor() {
+	if m.editor == nil || m.editor.scrollContainer == nil {
+		return
+	}
+
+	// Получаем текущую позицию прокрутки редактора
+	scrollOffset := m.editor.scrollContainer.Offset
+	contentHeight := m.editor.getContentHeight()
+	viewHeight := m.editor.scrollContainer.Size().Height
+
+	if contentHeight > viewHeight {
+		// Рассчитываем относительную позицию прокрутки
+		scrollRatio := scrollOffset.Y / (contentHeight - viewHeight)
+		m.scrollPosition = scrollRatio
+
+		// Обновляем viewport
+		m.UpdateViewport(scrollOffset.Y, viewHeight)
+	} else {
+		m.scrollPosition = 0
+		m.UpdateViewport(0, viewHeight)
+	}
 }
 
 // updateViewportPosition обновляет позицию viewport indicator
@@ -929,23 +1060,44 @@ func (m *MinimapWidget) GetWidth() float32 {
 	return m.width
 }
 
-// SetShowSyntax включает/выключает подсветку синтаксиса
+// SetShowSyntax включает/выключает подсветку синтаксиса только для minimap
 func (m *MinimapWidget) SetShowSyntax(show bool) {
-	if m.showSyntax == show {
+	if m.syntaxEnabled == show {
 		return
 	}
-	m.showSyntax = show
-	m.needsRedraw = true
+
+	m.syntaxEnabled = show
+
 	if show {
+		// Включаем подсветку для minimap
 		if m.editor != nil && m.editor.syntaxTokens != nil {
+			// Кэшируем токены для независимого использования
+			m.cachedSyntaxTokens = make([]chroma.Token, len(m.editor.syntaxTokens))
+			copy(m.cachedSyntaxTokens, m.editor.syntaxTokens)
+			m.syntaxTokens = m.cachedSyntaxTokens
 			m.applySyntaxHighlighting()
 		}
 	} else {
+		// Выключаем подсветку только для minimap
 		m.syntaxTokens = nil
-		m.processContent()
+		m.cachedSyntaxTokens = nil
+
+		// Перерисовываем без подсветки
+		for _, line := range m.coloredLines {
+			if line != nil && len(line.Segments) > 0 {
+				// Сбрасываем все сегменты на базовый цвет
+				for _, segment := range line.Segments {
+					segment.Color = m.colors.Text
+					segment.IsKeyword = false
+					segment.IsComment = false
+					segment.IsString = false
+				}
+			}
+		}
 	}
 
 	m.clearCaches()
+	m.needsRedraw = true
 }
 
 // SetFontSize устанавливает размер шрифта в minimap
@@ -953,18 +1105,55 @@ func (m *MinimapWidget) SetFontSize(size float32) {
 	if size <= 0 {
 		return
 	}
+
+	oldFontSize := m.fontSize
 	m.fontSize = size
-	m.lineHeight = size * 1.2
+	m.lineHeight = size * 1.5 // Увеличиваем множитель для лучшей читаемости
 	m.charWidth = size * 0.6
-	m.maxCharsPerLine = int(m.width / m.charWidth)
+
+	// Динамически пересчитываем максимальное количество символов
+	m.recalculateMaxChars()
+
+	// Масштабируем viewport пропорционально изменению шрифта
+	if m.viewport != nil && oldFontSize > 0 {
+		scaleFactor := size / oldFontSize
+		m.viewportHeight *= scaleFactor
+		m.updateViewportPosition()
+	}
+
+	// Очищаем кэши и перерисовываем
 	m.clearCaches()
 	m.processContent()
+
 	if m.showSyntax && m.editor != nil && m.editor.syntaxTokens != nil {
 		m.applySyntaxHighlighting()
 	}
-	m.viewportHeight = float32(m.visibleLines) * m.lineHeight
+
+	// Обновляем размер контейнера
+	m.updateCanvasSize()
 	m.needsRedraw = true
-	m.updateViewportPosition()
+}
+
+// recalculateMaxChars динамически пересчитывает максимальное количество символов
+func (m *MinimapWidget) recalculateMaxChars() {
+	// Учитываем отступы и возможные элементы интерфейса
+	effectiveWidth := m.width
+
+	if m.showLineNumbers {
+		// Резервируем место под номера строк (примерно 4 символа)
+		effectiveWidth -= m.charWidth * 4
+	}
+
+	// Резервируем небольшой отступ справа
+	effectiveWidth -= 5
+
+	// Рассчитываем количество символов
+	m.maxCharsPerLine = int(effectiveWidth / m.charWidth)
+
+	// Минимум 10 символов
+	if m.maxCharsPerLine < 10 {
+		m.maxCharsPerLine = 10
+	}
 }
 
 // SetShowLineNumbers включает/выключает номера строк
