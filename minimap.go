@@ -23,6 +23,7 @@ type MinimapWidget struct {
 	scrollContainer *container.Scroll
 	canvas          *fyne.Container
 	viewport        *ViewportIndicator
+	border          *canvas.Rectangle
 
 	// Связанный редактор
 	editor *EditorWidget
@@ -297,8 +298,14 @@ func (m *MinimapWidget) setupComponents() {
 		}
 	}
 
-	// Основной контейнер
-	m.mainContainer = container.NewBorder(nil, nil, nil, nil, m.scrollContainer)
+	// Создаем рамку minimap
+	m.border = canvas.NewRectangle(color.Transparent)
+	m.border.StrokeColor = m.colors.ViewportBorder
+	m.border.StrokeWidth = 1
+	m.border.Resize(fyne.NewSize(m.width, m.height))
+
+	// Основной контейнер с наложением слоев
+	m.mainContainer = container.NewStack(m.scrollContainer, m.border)
 }
 
 // startUpdateWorker запускает воркер обновлений
@@ -751,9 +758,6 @@ func (m *MinimapWidget) redrawMinimap() {
 	// Обновляем размер canvas
 	m.updateCanvasSize()
 
-	// Рисуем рамку поверх содержимого
-	m.drawBorder()
-
 	// Refresh
 	m.canvas.Refresh()
 }
@@ -864,16 +868,6 @@ func (m *MinimapWidget) drawLine(line *MinimapLine, x, y float32) {
 		m.canvas.Add(txt)
 		currentX += txt.MinSize().Width
 	}
-}
-
-// drawBorder рисует рамку вокруг minimap
-func (m *MinimapWidget) drawBorder() {
-	border := canvas.NewRectangle(color.Transparent)
-	border.StrokeColor = m.colors.ViewportBorder
-	border.StrokeWidth = 1
-	border.Resize(fyne.NewSize(m.width, m.getContentHeight()))
-	border.Move(fyne.NewPos(0, 0))
-	m.canvas.Add(border)
 }
 
 // drawViewport рисует индикатор видимой области
@@ -1058,6 +1052,9 @@ func (m *MinimapWidget) SetWidth(width float32) {
 	m.width = width
 	if m.scrollContainer != nil {
 		m.scrollContainer.Resize(fyne.NewSize(width, m.height))
+	}
+	if m.border != nil {
+		m.border.Resize(fyne.NewSize(width, m.height))
 	}
 	m.needsRedraw = true
 }

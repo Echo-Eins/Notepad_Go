@@ -16,6 +16,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/fsnotify/fsnotify"
+	"hash/fnv"
 	"image/color"
 	"io/ioutil"
 	"log"
@@ -86,9 +87,10 @@ type EditorWidget struct {
 	bracketPairs     []BracketPair
 
 	// Автосохранение
-	autoSaveTimer *time.Timer
-	lastSavedHash string
-	lastModified  time.Time
+	autoSaveTimer  *time.Timer
+	lastSavedHash  string
+	lastModified   time.Time
+	lastRenderHash uint64
 
 	// File watching
 	fileWatcher    *fsnotify.Watcher
@@ -993,20 +995,30 @@ func (e *EditorWidget) updateDisplay() {
 	e.renderMutex.Lock()
 	defer e.renderMutex.Unlock()
 
-	// Применяем подсветку синтаксиса
-	e.applySyntaxHighlighting()
+	// Вычисляем хеш содержимого для определения изменений
+	h := fnv.New64a()
+	h.Write([]byte(e.textContent))
+	contentHash := h.Sum64()
 
-	// Обновляем bracket matching
-	e.updateBracketMatching()
+	if contentHash != e.lastRenderHash {
+		// Применяем подсветку синтаксиса
+		e.applySyntaxHighlighting()
 
-	// Обновляем фолдинг
-	e.updateCodeFolding()
+		// Обновляем bracket matching
+		e.updateBracketMatching()
 
-	// Обновляем отступы
-	e.updateIndentGuides()
+		// Обновляем фолдинг
+		e.updateCodeFolding()
 
-	// Обновляем индикаторы фолдинга
-	e.updateFoldingIndicators()
+		// Обновляем отступы
+		e.updateIndentGuides()
+
+		// Обновляем индикаторы фолдинга
+		e.updateFoldingIndicators()
+
+		// Сохраняем хеш для последующих сравнений
+		e.lastRenderHash = contentHash
+	}
 
 	// Обновляем номера строк и содержимое в главном потоке UI
 	fyne.Do(func() {
