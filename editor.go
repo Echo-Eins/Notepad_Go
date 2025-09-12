@@ -2087,6 +2087,7 @@ func (e *EditorWidget) updateIndentGuides() {
 	charWidth := MeasureString(" ", theme.TextSize()).Width
 	lineHeight := MeasureString("M", theme.TextSize()).Height
 	innerPad := e.content.Theme().Size(theme.SizeNameInnerPadding) / 1.90
+	// lineSpacing := lineHeight + innerPad
 
 	fyne.Do(func() {
 		e.indentContainer.Objects = nil
