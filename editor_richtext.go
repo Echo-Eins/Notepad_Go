@@ -262,19 +262,29 @@ func (w *EditableRichTextWidget) TypedRune(r rune) {
 
 // TypedKey обрабатывает нажатие специальных клавиш
 func (w *EditableRichTextWidget) TypedKey(key *fyne.KeyEvent) {
-	if !w.focused {
-		return
-	}
+	w.handleKey(key.Name, 0) // No modifiers in basic KeyEvent
+}
 
-	// Вызываем callback если установлен
-	if w.onKeyPressed != nil && w.onKeyPressed(key) {
+// KeyDown обрабатывает нажатие клавиши с модификаторами (desktop.Keyable)
+func (w *EditableRichTextWidget) KeyDown(key *fyne.KeyEvent) {
+	w.handleKey(key.Name, 0) // Base implementation
+}
+
+// KeyUp обрабатывает отпускание клавиши (desktop.Keyable)
+func (w *EditableRichTextWidget) KeyUp(key *fyne.KeyEvent) {
+	// Ничего не делаем при отпускании клавиши
+}
+
+// handleKey общий обработчик клавиш
+func (w *EditableRichTextWidget) handleKey(keyName fyne.KeyName, mods fyne.KeyModifier) {
+	if !w.focused {
 		return
 	}
 
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
-	switch key.Name {
+	switch keyName {
 	case fyne.KeyReturn:
 		if !w.multiLine || w.readOnly {
 			return
@@ -294,32 +304,32 @@ func (w *EditableRichTextWidget) TypedKey(key *fyne.KeyEvent) {
 		w.handleDelete()
 
 	case fyne.KeyLeft:
-		w.moveCursorLeft(key.Modifiers)
+		w.moveCursorLeft(mods)
 
 	case fyne.KeyRight:
-		w.moveCursorRight(key.Modifiers)
+		w.moveCursorRight(mods)
 
 	case fyne.KeyUp:
-		w.moveCursorUp(key.Modifiers)
+		w.moveCursorUp(mods)
 
 	case fyne.KeyDown:
-		w.moveCursorDown(key.Modifiers)
+		w.moveCursorDown(mods)
 
 	case fyne.KeyHome:
-		w.moveCursorHome(key.Modifiers)
+		w.moveCursorHome(mods)
 
 	case fyne.KeyEnd:
-		w.moveCursorEnd(key.Modifiers)
+		w.moveCursorEnd(mods)
 
 	case fyne.KeyPageUp:
-		w.moveCursorPageUp(key.Modifiers)
+		w.moveCursorPageUp(mods)
 
 	case fyne.KeyPageDown:
-		w.moveCursorPageDown(key.Modifiers)
+		w.moveCursorPageDown(mods)
 
 	case fyne.KeyTab:
 		if !w.readOnly {
-			w.handleTab(key.Modifiers)
+			w.handleTab(mods)
 		}
 	}
 
