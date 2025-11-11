@@ -1,0 +1,88 @@
+🔴 ФАЗА 1: Критические UX проблемы (День 1)
+Рассинхрон нумерации строк (3-4ч)
+
+Проблема: lineNumbers - отдельный Label, не связанный со скроллом
+Решение: Синхронизация scroll offset через ScrollSynchronizer
+Двухслойный рендеринг текста (4-6ч)
+
+Проблема: Entry (белый) + RichText (цветной) = два слоя!
+Решение: Только RichText, single-pass rendering
+🟠 ФАЗА 2: Оптимизации (День 2)
+Config save блокирует UI (3-4ч)
+
+Проблема: json.MarshalIndent 10-50ms + синхронный applyFontSize()
+Решение: Debouncing + diff-based save + async apply
+O(n²) очистка canvas (1ч)
+
+Проблема: Remove() в цикле
+Решение: Objects = [] + object pooling
+Прокрутка колесиком (2ч)
+
+Решение: Реализовать Scrolled() handler
+Размеры диалогов (1-2ч)
+
+Проблема: Нет .Resize() у диалогов
+Решение: Задать размеры для всех диалогов
+🟡 ФАЗА 3: Критические баги (День 3)
+Code folding viewport (3-4ч)
+
+Проблема: Обрабатывает весь файл
+Решение: Только видимые строки + буфер
+5 критических ошибок (2ч)
+
+Race conditions в file_watcher и minimap
+Memory leak в syntaxCache
+Утечка горутин
+Игнорирование ошибок
+
+Подробно:
+1.4 Разработать систему миграции конфигурации JSON → TOML с валидацией и rollback
+ 🔧 ФАЗА 2: Реализация ScrollSynchronizer и исправление рассинхрона номеров строк
+ 2.1 Создать scroll_synchronizer.go с типами: ScrollSynchronizer, ScrollObserver, ScrollEvent
+ 2.2 Реализовать механизм подписки/уведомления для scroll events (pub/sub pattern)
+ 2.3 Интегрировать ScrollSynchronizer в EditorWidget, связать с scrollContainer.OnScrolled
+ 2.4 Создать LineNumbersWidget как custom widget с поддержкой scroll synchronization
+ 2.5 Реализовать виртуализацию номеров строк (рендерить только видимые + buffer)
+ 2.6 Подключить LineNumbersWidget к ScrollSynchronizer для автоматической синхронизации
+ 2.7 Реализовать обработку mouse wheel events для плавной прокрутки
+ 2.8 Добавить momentum scrolling и smooth scroll interpolation
+ 2.9 Тестирование синхронизации: scroll bar + mouse wheel + keyboard + programmatic scroll
+ ✨ ФАЗА 3: Переход на единый RichText рендеринг (убираем двойной слой)
+ 3.1 Создать EditableRichTextWidget с custom renderer (editor_richtext.go)
+ 3.2 Реализовать EditableRichTextRenderer с поддержкой курсора и selection
+ 3.3 Добавить keyboard input handling в EditableRichTextWidget (TypedRune, TypedKey)
+ 3.4 Реализовать mouse event handling (Tapped, Dragged для selection)
+ 3.5 Добавить курсор rendering с мигающей анимацией
+ 3.6 Реализовать selection rendering с правильными цветами
+ 3.7 Интегрировать syntax highlighting в EditableRichTextRenderer (single pass)
+ 3.8 Добавить text caching и incremental rendering для производительности
+ 3.9 Заменить в EditorWidget: удалить content (Entry) + richContent, добавить editableRichText
+ 3.10 Обновить все вызовы в editor.go: content.SetText → editableRichText.SetText
+ 3.11 Обновить все вызовы в других файлах (main.go, vim.go, commands.go)
+ 3.12 Удалить старый код: configureEntryOverlay, hideEntryText, reflection hacks
+ 3.13 Полное тестирование: редактирование, копирование, вставка, выделение, undo/redo
+ ⚙️ ФАЗА 4: Миграция конфигурации с JSON на TOML (полная оптимизация)
+ 4.1 Установить TOML библиотеку: go get github.com/BurntSushi/toml
+ 4.2 Добавить TOML теги ко всем Config структурам (Config, AppConfig, EditorConfig, etc.)
+ 4.3 Создать ConfigSerializer interface с реализациями JSONSerializer и TOMLSerializer
+ 4.4 Реализовать TOMLConfigManager с методами Load/Save через toml.Decode/Encode
+ 4.5 Создать ConfigMigrator для автоматической миграции config.json → config.toml
+ 4.6 Добавить backup механизм: config.json → config.json.backup перед миграцией
+ 4.7 Реализовать diff-based save: сравнивать old/new config, сохранять только при изменениях
+ 4.8 Добавить debouncing для config save (300ms задержка, отмена предыдущих запросов)
+ 4.9 Сделать config save полностью async через goroutine + channel queue
+ 4.10 Заменить все json.Marshal/Unmarshal на toml.Encode/Decode в settings.go
+ 4.11 Обновить все вызовы configManager в main.go, dialogs.go, hotkeys.go
+ 4.12 Обновить getConfigDirectory: изменить путь с config.json на config.toml
+ 4.13 Добавить валидацию TOML при загрузке с понятными error messages
+ 4.14 Тестирование: загрузка, сохранение, миграция, rollback на ошибке
+ 🎯 ФАЗА 5: Интеграция и финальное тестирование
+ 5.1 Интегрировать все компоненты в EditorWidget: ScrollSynchronizer + EditableRichText + LineNumbers
+ 5.2 Обновить minimap.go для работы с новым EditableRichText и ScrollSynchronizer
+ 5.3 Обновить sidebar.go для работы с новой TOML конфигурацией
+ 5.4 Тестирование открытия файлов разных размеров (1KB, 100KB, 1MB, 10MB)
+ 5.5 Тестирование производительности скролла (должна быть 60 FPS)
+ 5.6 Тестирование синхронизации при изменении размера окна
+ 5.7 Тестирование работы с TOML config: изменения через UI должны сохраняться
+ 5.8 Измерить производительность: время открытия файла, рендеринга, скролла, сохранения config
+ 5.9 Code review и рефакторинг по необходимости
