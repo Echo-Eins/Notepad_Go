@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/alecthomas/chroma/v2"
@@ -24,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -32,7 +30,6 @@ import (
 	"sync"
 	"time"
 	"unicode"
-	"unsafe"
 )
 
 // EditorWidget - основной виджет редактора с полным функционалом
@@ -40,11 +37,11 @@ type EditorWidget struct {
 	widget.BaseWidget
 
 	// Основные компоненты (Production-ready architecture)
-	editableRichText   *EditableRichTextWidget // Единый редактируемый RichText (устраняет двухслойность!)
-	lineNumbersWidget  *LineNumbersWidget      // Виджет номеров строк с виртуализацией
-	scrollSync         *ScrollSynchronizer     // Синхронизатор скролла для всех компонентов
-	scrollContainer    *container.Scroll
-	mainContainer      *fyne.Container
+	editableRichText  *EditableRichTextWidget // Единый редактируемый RichText (устраняет двухслойность!)
+	lineNumbersWidget *LineNumbersWidget      // Виджет номеров строк с виртуализацией
+	scrollSync        *ScrollSynchronizer     // Синхронизатор скролла для всех компонентов
+	scrollContainer   *container.Scroll
+	mainContainer     *fyne.Container
 
 	// Конфигурация
 	config *Config
