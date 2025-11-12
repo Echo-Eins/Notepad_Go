@@ -256,6 +256,7 @@ func (w *EditableRichTextWidget) applySyntaxHighlighting() {
 }
 
 // updateRichTextSegments обновляет segments в richText на основе токенов
+// ПОЛНАЯ РЕАЛИЗАЦИЯ раскраски токенов с использованием Chroma стилей
 func (w *EditableRichTextWidget) updateRichTextSegments() {
 	if w.richText == nil {
 		return
@@ -266,10 +267,119 @@ func (w *EditableRichTextWidget) updateRichTextSegments() {
 		return
 	}
 
-	// Создаем segments из токенов
-	// Упрощенная версия - просто показываем текст
-	// TODO: Добавить раскраску токенов
-	w.richText.ParseMarkdown(w.text)
+	// Создаем segments из токенов с правильными цветами
+	var segments []widget.RichTextSegment
+
+	for _, token := range w.syntaxTokens {
+		// Пропускаем пустые токены
+		if token.Value == "" {
+			continue
+		}
+
+		// Получаем стиль для токена
+		style := w.getStyleForToken(token.Type)
+
+		// Создаем text segment с цветом
+		segment := &widget.TextSegment{
+			Text: token.Value,
+			Style: widget.RichTextStyle{
+				ColorName: "", // Используем собственный цвет
+				Inline:    true,
+				SizeName:  theme.SizeNameText,
+			},
+		}
+
+		// Применяем цвет к сегменту
+		if style != nil {
+			// Используем canvas.Text с цветом из стиля
+			textObj := &coloredTextSegment{
+				text:  token.Value,
+				color: style.Colour,
+				style: widget.RichTextStyle{
+					Inline:   true,
+					SizeName: theme.SizeNameText,
+				},
+			}
+			segments = append(segments, textObj)
+		} else {
+			segments = append(segments, segment)
+		}
+	}
+
+	// Обновляем richText с segments
+	w.richText.Segments = segments
+	w.richText.Refresh()
+}
+
+// getStyleForToken возвращает стиль Chroma для типа токена
+func (w *EditableRichTextWidget) getStyleForToken(tokenType chroma.TokenType) *chroma.StyleEntry {
+	if w.syntaxStyle == nil {
+		return nil
+	}
+
+	// Получаем стиль для токена из Chroma Style
+	entry := w.syntaxStyle.Get(tokenType)
+	if entry.IsZero() {
+		// Пробуем получить стиль родительского типа
+		parent := tokenType.Parent()
+		if parent != tokenType {
+			return w.getStyleForToken(parent)
+		}
+		return nil
+	}
+
+	return &entry
+}
+
+// coloredTextSegment - кастомный сегмент с цветом для RichText
+type coloredTextSegment struct {
+	text  string
+	color color.Color
+	style widget.RichTextStyle
+}
+
+func (c *coloredTextSegment) Inline() bool {
+	return c.style.Inline
+}
+
+func (c *coloredTextSegment) Textual() string {
+	return c.text
+}
+
+func (c *coloredTextSegment) Update(obj fyne.CanvasObject) {
+	if text, ok := obj.(*canvas.Text); ok {
+		text.Text = c.text
+		if c.color != nil {
+			text.Color = c.color
+		}
+		text.TextSize = theme.TextSize()
+		text.TextStyle = fyne.TextStyle{}
+		text.Refresh()
+	}
+}
+
+func (c *coloredTextSegment) Visual() fyne.CanvasObject {
+	text := canvas.NewText(c.text, c.color)
+	if c.color != nil {
+		text.Color = c.color
+	} else {
+		text.Color = theme.ForegroundColor()
+	}
+	text.TextSize = theme.TextSize()
+	text.TextStyle = fyne.TextStyle{}
+	return text
+}
+
+func (c *coloredTextSegment) Select(pos1, pos2 fyne.Position) {
+	// Не реализуем выделение для colored segments
+}
+
+func (c *coloredTextSegment) SelectedText() string {
+	return ""
+}
+
+func (c *coloredTextSegment) Unselect() {
+	// Не реализуем
 }
 
 // TypedRune обрабатывает ввод символа

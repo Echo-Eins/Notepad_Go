@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/alecthomas/chroma/v2"
@@ -24,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -32,19 +30,18 @@ import (
 	"sync"
 	"time"
 	"unicode"
-	"unsafe"
 )
 
 // EditorWidget - основной виджет редактора с полным функционалом
 type EditorWidget struct {
 	widget.BaseWidget
 
-	// Основные компоненты
-	content         *widget.Entry    // Изменено с RichText на Entry для редактирования
-	richContent     *widget.RichText // Для отображения с подсветкой
-	lineNumbers     *widget.Label
-	scrollContainer *container.Scroll
-	mainContainer   *fyne.Container // Изменено с container.Border на *fyne.Container
+	// Основные компоненты (Production-ready architecture)
+	editableRichText  *EditableRichTextWidget // Единый редактируемый RichText (устраняет двухслойность!)
+	lineNumbersWidget *LineNumbersWidget      // Виджет номеров строк с виртуализацией
+	scrollSync        *ScrollSynchronizer     // Синхронизатор скролла для всех компонентов
+	scrollContainer   *container.Scroll
+	mainContainer     *fyne.Container
 
 	// Конфигурация
 	config *Config
@@ -211,7 +208,9 @@ func (e *EditorWidget) LoadFile(path string) error {
 	e.textContent = string(content)
 	e.foldedRanges = make(map[int]FoldRange)
 	e.autoFoldApplied = false
-	e.content.SetText(e.textContent)
+	if e.editableRichText != nil {
+		e.editableRichText.SetText(e.textContent)
+	}
 	e.isDirty = false
 	e.lastModified = info.ModTime()
 	e.detectLanguage()
@@ -393,7 +392,7 @@ func (e *EditorWidget) getContentHeight() float32 {
 
 // updateLineNumbers пересчитывает и обновляет виджет номеров строк
 func (e *EditorWidget) updateLineNumbers() {
-	if e.lineNumbers == nil {
+	if e.lineNumbersWidget == nil {
 		return
 	}
 
@@ -413,8 +412,8 @@ func (e *EditorWidget) updateLineNumbers() {
 
 	text := b.String()
 	fyne.Do(func() {
-		e.lineNumbers.SetText(text)
-		e.lineNumbers.Refresh()
+		e.lineNumbersWidget.SetText(text)
+		e.lineNumbersWidget.Refresh()
 	})
 }
 
@@ -568,24 +567,45 @@ func NewEditor(config *Config) *EditorWidget {
 
 // setupComponents создает и настраивает UI компоненты
 func (e *EditorWidget) setupComponents() {
-	// Создаем основной текстовый виджет (Entry для редактирования)
-	e.content = widget.NewMultiLineEntry()
-	e.content.Wrapping = fyne.TextWrapWord
-	configureEntryOverlay(e.content)
+	// ✅ Создаем ScrollSynchronizer для синхронизации скролла
+	e.scrollSync = NewScrollSynchronizer()
 
-	// Настраиваем поведение в зависимости от WordWrap
-	if e.config.Editor.WordWrap { // Исправлено: config.Editor.WordWrap
-		e.content.Wrapping = fyne.TextWrapWord
+	// ✅ Создаем единый EditableRichTextWidget (устраняет двухслойность!)
+	e.editableRichText = NewEditableRichTextWidget()
+	e.editableRichText.SetText(e.textContent)
+	e.editableRichText.scrollSync = e.scrollSync
+
+	// Настраиваем word wrap
+	if e.config.Editor.WordWrap {
+		e.editableRichText.SetWordWrap(true)
 	} else {
-		e.content.Wrapping = fyne.TextWrapOff
+		e.editableRichText.SetWordWrap(false)
 	}
-
-	// Создаем RichText для отображения с подсветкой
-	e.richContent = widget.NewRichText()
 
 	// Подключаем syntax highlighting
 	if e.lexer != nil && e.style != nil {
 		e.editableRichText.SetSyntaxLexer(e.lexer, e.style)
+		e.editableRichText.EnableSyntax(true)
+	}
+
+	// Callbacks для синхронизации состояния
+	e.editableRichText.onChanged = func(text string) {
+		e.textContent = text
+		e.isDirty = true
+		if e.onContentChanged != nil {
+			e.onContentChanged(text)
+		}
+	}
+
+	e.editableRichText.onCursorChanged = func(row, col int) {
+		e.cursorRow = row
+		e.cursorCol = col
+		if e.lineNumbersWidgetWidget != nil {
+			e.lineNumbersWidgetWidget.SetCurrentLine(row + 1)
+		}
+		if e.onCursorChanged != nil {
+			e.onCursorChanged(row, col)
+		}
 	}
 
 	// ✅ Создаем виджет номеров строк с виртуализацией
@@ -593,8 +613,8 @@ func (e *EditorWidget) setupComponents() {
 	if lineCount == 0 {
 		lineCount = 1
 	}
-	e.lineNumbersWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
-	e.lineNumbersWidget.SetCurrentLine(e.cursorRow + 1)
+	e.lineNumbersWidgetWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
+	e.lineNumbersWidgetWidget.SetCurrentLine(e.cursorRow + 1)
 
 	// Обновляем bookmarks и lint errors если есть
 	if len(e.bookmarks) > 0 {
@@ -602,14 +622,14 @@ func (e *EditorWidget) setupComponents() {
 		for i, b := range e.bookmarks {
 			bookmarkLines[i] = b.StartLine
 		}
-		e.lineNumbersWidget.SetBookmarks(bookmarkLines)
+		e.lineNumbersWidgetWidget.SetBookmarks(bookmarkLines)
 	}
 	if e.lintLines != nil && len(e.lintLines) > 0 {
-		e.lineNumbersWidget.SetLintErrors(e.lintLines)
+		e.lineNumbersWidgetWidget.SetLintErrors(e.lintLines)
 	}
 
 	// Обработчик клика по номеру строки
-	e.lineNumbersWidget.SetOnLineClicked(func(line int) {
+	e.lineNumbersWidgetWidget.SetOnLineClicked(func(line int) {
 		// Перемещаем курсор на эту строку
 		if line > 0 && line <= lineCount {
 			e.cursorRow = line - 1
@@ -627,13 +647,12 @@ func (e *EditorWidget) setupComponents() {
 	// Контейнер для индикаторов фолдинга
 	e.indicatorContainer = container.NewWithoutLayout()
 
-	// Создаем контейнер с прокруткой
-	// Размещаем RichText под Entry, чтобы цветная разметка
-	// не перекрывала курсор и выделение текста.
-	editorLayer := container.NewStack(e.richContent, e.content, e.indentContainer)
+	// ✅ Создаем контейнер редактора (ОДИН СЛОЙ!)
+	editorLayer := container.NewStack(e.editableRichText, e.indentContainer)
+
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbers)
+		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbersWidgetWidget)
 		editorContent = container.NewBorder(nil, nil, leftPanel, nil, editorLayer)
 	} else if e.config.Editor.CodeFolding {
 		editorContent = container.NewBorder(nil, nil, e.indicatorContainer, nil, editorLayer)
@@ -645,52 +664,8 @@ func (e *EditorWidget) setupComponents() {
 	e.scrollContainer.SetMinSize(fyne.NewSize(800, 600))
 
 	// Основной контейнер
-	e.mainContainer = container.NewMax(e.scrollContainer) // Используем container.NewMax вместо Border
+	e.mainContainer = container.NewMax(e.scrollContainer)
 	e.updateFoldingIndicators()
-}
-
-// configureEntryOverlay скрывает фон и текст стандартного Entry,
-// оставляя только курсор и прямоугольники выделения.
-func configureEntryOverlay(entry *widget.Entry) {
-	r := test.WidgetRenderer(entry)
-	rv := reflect.ValueOf(r).Elem()
-
-	hideRect := func(name string) {
-		f := rv.FieldByName(name)
-		if !f.IsValid() {
-			return
-		}
-		rect := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem().Interface().(*canvas.Rectangle)
-		rect.Hide()
-	}
-
-	hideRect("box")
-	hideRect("border")
-	hideEntryText(entry)
-}
-
-// hideEntryText делает текст и плейсхолдер Entry полностью прозрачными.
-func hideEntryText(entry *widget.Entry) {
-	val := reflect.ValueOf(entry).Elem()
-
-	hideField := func(name string) {
-		f := val.FieldByName(name)
-		if !f.IsValid() {
-			return
-		}
-		rt := reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Interface().(*widget.RichText)
-		rt.Refresh()
-		r := test.WidgetRenderer(rt)
-		for _, obj := range r.Objects() {
-			if txt, ok := obj.(*canvas.Text); ok {
-				txt.Color = color.Transparent
-				txt.Refresh()
-			}
-		}
-	}
-
-	hideField("text")
-	hideField("placeholder")
 }
 
 // setupAutoSave настраивает автосохранение
@@ -710,57 +685,44 @@ func (e *EditorWidget) setupAutoSave() {
 }
 
 func (e *EditorWidget) bindEvents() {
-	// Обработчик изменения текста для Entry
-	e.content.OnChanged = func(text string) {
-		e.textContent = text
-		e.onTextChanged()
-		hideEntryText(e.content)
-	}
-
-	// Обработчик изменения позиции курсора
-	e.content.OnCursorChanged = func() {
-		// Обновляем позицию курсора
-		e.updateCursorPosition()
-		hideEntryText(e.content)
-	}
-
+	// Обработчики уже установлены в setupComponents() через callbacks
 	// Добавляем обработку кликов через расширение базового виджета
 	e.ExtendBaseWidget(e)
 }
 
 // FocusGained is called when the editor receives focus.
-// Forward the event to the underlying Entry widget so that
+// Forward the event to the underlying EditableRichTextWidget so that
 // text input continues to work as expected.
 func (e *EditorWidget) FocusGained() {
-	if e.content != nil {
-		e.content.FocusGained()
+	if e.editableRichText != nil {
+		e.editableRichText.FocusGained()
 	}
 }
 
 // FocusLost is called when the editor loses focus.
-// We forward this event to the Entry widget to ensure
+// We forward this event to the EditableRichTextWidget to ensure
 // it updates its state appropriately.
 func (e *EditorWidget) FocusLost() {
-	if e.content != nil {
-		e.content.FocusLost()
+	if e.editableRichText != nil {
+		e.editableRichText.FocusLost()
 	}
 }
 
-// TypedRune forwards rune input to the underlying Entry widget.
+// TypedRune forwards rune input to the underlying EditableRichTextWidget.
 func (e *EditorWidget) TypedRune(r rune) {
-	if e.content != nil {
-		e.content.TypedRune(r)
+	if e.editableRichText != nil {
+		e.editableRichText.TypedRune(r)
 	}
 }
 
-// TypedKey forwards key events to the underlying Entry widget with auto-indentation support.
+// TypedKey forwards key events to the underlying EditableRichTextWidget with auto-indentation support.
 func (e *EditorWidget) TypedKey(event *fyne.KeyEvent) {
 	if e.config != nil && e.config.Editor.AutoIndent && event.Name == fyne.KeyReturn {
 		e.handleAutoIndent()
 		return
 	}
-	if e.content != nil {
-		e.content.TypedKey(event)
+	if e.editableRichText != nil {
+		e.editableRichText.TypedKey(event)
 	}
 }
 
@@ -809,9 +771,11 @@ func (e *EditorWidget) handleAutoIndent() {
 		}
 
 	}
-	e.content.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
-	for i := 0; i < indent; i++ {
-		e.content.TypedRune(' ')
+	if e.editableRichText != nil {
+		e.editableRichText.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
+		for i := 0; i < indent; i++ {
+			e.editableRichText.TypedRune(' ')
+		}
 	}
 }
 
@@ -876,8 +840,10 @@ func (e *EditorWidget) Scrolled(event *fyne.ScrollEvent) {
 
 // updateCursorPosition обновляет внутреннее состояние позиции курсора
 func (e *EditorWidget) updateCursorPosition() {
-	e.cursorRow = e.content.CursorRow
-	e.cursorCol = e.content.CursorColumn
+	if e.editableRichText != nil {
+		e.cursorRow = e.editableRichText.cursorRow
+		e.cursorCol = e.editableRichText.cursorCol
+	}
 	if e.onCursorChanged != nil {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
@@ -1077,11 +1043,11 @@ func (e *EditorWidget) updateDisplay() {
 
 	// Обновляем номера строк и содержимое в главном потоке UI
 	fyne.Do(func() {
-		if e.lineNumbers != nil {
+		if e.lineNumbersWidget != nil {
 			e.updateLineNumbers()
 		}
-		e.content.Refresh()
-		e.richContent.Refresh()
+		e.editableRichText.Refresh()
+		e.editableRichText.richText.Refresh()
 	})
 }
 
@@ -1090,8 +1056,8 @@ func (e *EditorWidget) updateDisplay() {
 // GetSelectedText возвращает выделенный текст
 func (e *EditorWidget) GetSelectedText() string {
 	// Если используем Entry, можем получить выделение
-	if e.content.SelectedText() != "" {
-		return e.content.SelectedText()
+	if e.editableRichText.GetSelectedText() != "" {
+		return e.editableRichText.GetSelectedText()
 	}
 	return ""
 }
@@ -1107,7 +1073,7 @@ func (e *EditorWidget) GetCurrentLine() string {
 
 // SelectAll выделяет весь текст
 func (e *EditorWidget) SelectAll() {
-	e.content.TypedShortcut(&fyne.ShortcutSelectAll{})
+	e.editableRichText.TypedShortcut(&fyne.ShortcutSelectAll{})
 }
 
 // GetCursorPosition возвращает позицию курсора
@@ -1121,7 +1087,7 @@ func (e *EditorWidget) GetCursorPosition() TextPosition {
 // Clear очищает содержимое редактора
 func (e *EditorWidget) Clear() {
 	e.textContent = ""
-	e.content.SetText("")
+	e.editableRichText.SetText("")
 	e.cursorRow = 0
 	e.cursorCol = 0
 	e.selectionStart = TextPosition{}
@@ -1183,7 +1149,7 @@ func (e *EditorWidget) Redo() {
 
 // ReplaceSelection заменяет выделенный текст новым
 func (e *EditorWidget) ReplaceSelection(newText string) {
-	sel := e.content.SelectedText()
+	sel := e.editableRichText.GetSelectedText()
 	if sel == "" {
 		return
 	}
@@ -1202,7 +1168,7 @@ func (e *EditorWidget) ReplaceSelection(newText string) {
 		lines = append(lines[:start.Row], append([]string{first + newText + last}, lines[end.Row+1:]...)...)
 	}
 	e.textContent = strings.Join(lines, "\n")
-	e.content.SetText(e.textContent)
+	e.editableRichText.SetText(e.textContent)
 	e.cursorRow = start.Row
 	e.cursorCol = start.Col + len(newText)
 	e.isDirty = true
@@ -1215,7 +1181,7 @@ func (e *EditorWidget) ReplaceCurrentLine(newLine string) {
 	if e.cursorRow >= 0 && e.cursorRow < len(lines) {
 		lines[e.cursorRow] = newLine
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		e.editableRichText.SetText(e.textContent)
 		e.isDirty = true
 		e.updateDisplay()
 	}
@@ -1233,7 +1199,7 @@ func (e *EditorWidget) SelectWordAtCursor() {
 		e.selectionStart = TextPosition{Row: e.cursorRow, Col: idx}
 		e.selectionEnd = TextPosition{Row: e.cursorRow, Col: idx + len(word)}
 		e.cursorCol = idx + len(word)
-		e.content.CursorColumn = e.cursorCol
+		e.editableRichText.cursorCol = e.cursorCol
 	}
 }
 
@@ -1247,7 +1213,7 @@ func (e *EditorWidget) SelectCurrentLine() {
 	e.selectionStart = TextPosition{Row: e.cursorRow, Col: 0}
 	e.selectionEnd = TextPosition{Row: e.cursorRow, Col: len(line)}
 	e.cursorCol = len(line)
-	e.content.CursorColumn = e.cursorCol
+	e.editableRichText.cursorCol = e.cursorCol
 }
 
 // ExpandSelection расширяет выделение до слова
@@ -1259,7 +1225,7 @@ func (e *EditorWidget) ExpandSelection() {
 func (e *EditorWidget) ShrinkSelection() {
 	e.selectionStart = TextPosition{}
 	e.selectionEnd = TextPosition{}
-	e.content.SetText(e.textContent)
+	e.editableRichText.SetText(e.textContent)
 }
 
 // AddCursorAbove добавляет курсор выше текущего
@@ -1293,7 +1259,7 @@ func (e *EditorWidget) MoveCursorRight() {
 		e.cursorCol = 0
 	}
 	e.content.CursorRow = e.cursorRow
-	e.content.CursorColumn = e.cursorCol
+	e.editableRichText.cursorCol = e.cursorCol
 	if e.onCursorChanged != nil {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
@@ -1309,7 +1275,7 @@ func (e *EditorWidget) DeleteCurrentLine() {
 		}
 		e.cursorCol = 0
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		e.editableRichText.SetText(e.textContent)
 		e.isDirty = true
 		e.updateDisplay()
 	}
@@ -1327,7 +1293,7 @@ func (e *EditorWidget) InsertText(text string) {
 		lines[e.cursorRow] = newLine
 		e.cursorCol += len(text)
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		e.editableRichText.SetText(e.textContent)
 		e.isDirty = true
 		e.updateDisplay()
 	}
@@ -1344,7 +1310,7 @@ func (e *EditorWidget) KillToEndOfLine() string {
 		killed := line[e.cursorCol:]
 		lines[e.cursorRow] = line[:e.cursorCol]
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		e.editableRichText.SetText(e.textContent)
 		e.isDirty = true
 		e.updateDisplay()
 		return killed
@@ -1369,7 +1335,7 @@ func (e *EditorWidget) KillWord() string {
 		killed := rest[:loc[1]]
 		lines[e.cursorRow] = line[:e.cursorCol] + rest[loc[1]:]
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		e.editableRichText.SetText(e.textContent)
 		e.isDirty = true
 		e.updateDisplay()
 		return killed
@@ -1440,7 +1406,7 @@ func (e *EditorWidget) moveCursorToIndex(idx int) {
 		e.cursorCol = idx
 	}
 	e.content.CursorRow = e.cursorRow
-	e.content.CursorColumn = e.cursorCol
+	e.editableRichText.cursorCol = e.cursorCol
 }
 
 // GetWordAtCursor возвращает слово под курсором
@@ -1500,7 +1466,7 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 	e.cursorRow = line
 	e.cursorCol = column
 	e.content.CursorRow = line
-	e.content.CursorColumn = column
+	e.editableRichText.cursorCol = column
 	e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(line)*theme.TextSize()))
 }
 
@@ -1712,16 +1678,16 @@ func (e *EditorWidget) SetVimMode(mode VimMode) {
 func (e *EditorWidget) applySyntaxHighlighting() {
 	// Всегда синхронизируем Entry с текущим текстом
 	fyne.Do(func() {
-		e.content.SetText(e.textContent)
+		e.editableRichText.SetText(e.textContent)
 	})
 
 	if e.config != nil && !e.config.Editor.SyntaxHighlighting {
 		e.syntaxTokens = nil
 		fyne.Do(func() {
-			e.richContent.Segments = []widget.RichTextSegment{
+			e.editableRichText.richText.Segments = []widget.RichTextSegment{
 				&widget.TextSegment{Text: e.textContent},
 			}
-			e.richContent.Refresh()
+			e.editableRichText.richText.Refresh()
 		})
 		return
 	}
@@ -1797,8 +1763,8 @@ func (e *EditorWidget) applyTokensToRichText() {
 
 	// Обновление содержимого RichText должно выполняться в главном потоке UI
 	fyne.Do(func() {
-		e.richContent.Segments = segments
-		e.richContent.Refresh()
+		e.editableRichText.richText.Segments = segments
+		e.editableRichText.richText.Refresh()
 	})
 }
 
@@ -2685,13 +2651,13 @@ func (e *EditorWidget) showContextMenu(ev *fyne.PointEvent) {
 	}
 	items := []*fyne.MenuItem{
 		fyne.NewMenuItem("Cut", func() {
-			e.content.TypedShortcut(&fyne.ShortcutCut{Clipboard: fyne.CurrentApp().Clipboard()})
+			e.editableRichText.TypedShortcut(&fyne.ShortcutCut{Clipboard: fyne.CurrentApp().Clipboard()})
 		}),
 		fyne.NewMenuItem("Copy", func() {
-			e.content.TypedShortcut(&fyne.ShortcutCopy{Clipboard: fyne.CurrentApp().Clipboard()})
+			e.editableRichText.TypedShortcut(&fyne.ShortcutCopy{Clipboard: fyne.CurrentApp().Clipboard()})
 		}),
 		fyne.NewMenuItem("Paste", func() {
-			e.content.TypedShortcut(&fyne.ShortcutPaste{Clipboard: fyne.CurrentApp().Clipboard()})
+			e.editableRichText.TypedShortcut(&fyne.ShortcutPaste{Clipboard: fyne.CurrentApp().Clipboard()})
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Select All", func() {
@@ -2769,8 +2735,8 @@ func (e *EditorWidget) goToDefinition(name string) {
 	for i, line := range lines {
 		if idx := strings.Index(line, name); idx >= 0 {
 			e.content.CursorRow = i
-			e.content.CursorColumn = idx
-			e.content.Refresh()
+			e.editableRichText.cursorCol = idx
+			e.editableRichText.Refresh()
 			e.cursorRow = i
 			e.cursorCol = idx
 			e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(i)*theme.TextSize()))
