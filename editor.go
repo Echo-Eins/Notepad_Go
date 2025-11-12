@@ -397,24 +397,18 @@ func (e *EditorWidget) updateLineNumbers() {
 	}
 
 	lines := e.getLineCount()
-	digits := len(fmt.Sprintf("%d", lines))
-	var b strings.Builder
-	for i := 1; i <= lines; i++ {
-		if i > 1 {
-			b.WriteRune('\n')
+
+	// Собираем список закладок
+	bookmarkLines := make([]int, 0)
+	for _, bookmark := range e.bookmarks {
+		for line := bookmark.StartLine; line <= bookmark.EndLine; line++ {
+			bookmarkLines = append(bookmarkLines, line)
 		}
-		marker := "  "
-		if e.IsLineBookmarked(i) {
-			marker = "★ "
-		}
-		b.WriteString(fmt.Sprintf("%s%*d", marker, digits, i))
 	}
 
-	text := b.String()
-	fyne.Do(func() {
-		e.lineNumbersWidget.SetText(text)
-		e.lineNumbersWidget.Refresh()
-	})
+	// Обновляем виджет через правильный API
+	e.lineNumbersWidget.SetTotalLines(lines)
+	e.lineNumbersWidget.SetBookmarks(bookmarkLines)
 }
 
 // setupSyntaxHighlighter настраивает подсветку синтаксиса
@@ -600,8 +594,8 @@ func (e *EditorWidget) setupComponents() {
 	e.editableRichText.onCursorChanged = func(row, col int) {
 		e.cursorRow = row
 		e.cursorCol = col
-		if e.lineNumbersWidget != nil {
-			e.lineNumbersWidget.SetCurrentLine(row + 1)
+		if e.lineNumbersWidgetWidget != nil {
+			e.lineNumbersWidgetWidget.SetCurrentLine(row + 1)
 		}
 		if e.onCursorChanged != nil {
 			e.onCursorChanged(row, col)
@@ -613,8 +607,8 @@ func (e *EditorWidget) setupComponents() {
 	if lineCount == 0 {
 		lineCount = 1
 	}
-	e.lineNumbersWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
-	e.lineNumbersWidget.SetCurrentLine(e.cursorRow + 1)
+	e.lineNumbersWidgetWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
+	e.lineNumbersWidgetWidget.SetCurrentLine(e.cursorRow + 1)
 
 	// Обновляем bookmarks и lint errors если есть
 	if len(e.bookmarks) > 0 {
@@ -622,14 +616,14 @@ func (e *EditorWidget) setupComponents() {
 		for i, b := range e.bookmarks {
 			bookmarkLines[i] = b.StartLine
 		}
-		e.lineNumbersWidget.SetBookmarks(bookmarkLines)
+		e.lineNumbersWidgetWidget.SetBookmarks(bookmarkLines)
 	}
 	if e.lintLines != nil && len(e.lintLines) > 0 {
-		e.lineNumbersWidget.SetLintErrors(e.lintLines)
+		e.lineNumbersWidgetWidget.SetLintErrors(e.lintLines)
 	}
 
 	// Обработчик клика по номеру строки
-	e.lineNumbersWidget.SetOnLineClicked(func(line int) {
+	e.lineNumbersWidgetWidget.SetOnLineClicked(func(line int) {
 		// Перемещаем курсор на эту строку
 		if line > 0 && line <= lineCount {
 			e.cursorRow = line - 1
@@ -652,7 +646,7 @@ func (e *EditorWidget) setupComponents() {
 
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbersWidget)
+		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbersWidgetWidget)
 		editorContent = container.NewBorder(nil, nil, leftPanel, nil, editorLayer)
 	} else if e.config.Editor.CodeFolding {
 		editorContent = container.NewBorder(nil, nil, e.indicatorContainer, nil, editorLayer)
@@ -1258,7 +1252,7 @@ func (e *EditorWidget) MoveCursorRight() {
 		e.cursorRow++
 		e.cursorCol = 0
 	}
-	e.editableRichText.cursorRow = e.cursorRow
+	e.editableRichText.CursorRow = e.cursorRow
 	e.editableRichText.cursorCol = e.cursorCol
 	if e.onCursorChanged != nil {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
@@ -1405,7 +1399,7 @@ func (e *EditorWidget) moveCursorToIndex(idx int) {
 	} else {
 		e.cursorCol = idx
 	}
-	e.editableRichText.cursorRow = e.cursorRow
+	e.editableRichText.CursorRow = e.cursorRow
 	e.editableRichText.cursorCol = e.cursorCol
 }
 
@@ -1465,7 +1459,7 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 	}
 	e.cursorRow = line
 	e.cursorCol = column
-	e.editableRichText.cursorRow = line
+	e.editableRichText.CursorRow = line
 	e.editableRichText.cursorCol = column
 	e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(line)*theme.TextSize()))
 }
@@ -2107,7 +2101,7 @@ func (e *EditorWidget) updateIndentGuides() {
 
 	charWidth := MeasureString(" ", theme.TextSize()).Width
 	lineHeight := MeasureString("M", theme.TextSize()).Height
-	innerPad := e.editableRichText.Theme().Size(theme.SizeNameInnerPadding) / 1.90
+	innerPad := theme.InnerPadding() / 1.90
 	// lineSpacing := lineHeight + innerPad
 
 	fyne.Do(func() {
@@ -2734,7 +2728,7 @@ func (e *EditorWidget) goToDefinition(name string) {
 	lines := strings.Split(e.textContent, "\n")
 	for i, line := range lines {
 		if idx := strings.Index(line, name); idx >= 0 {
-			e.editableRichText.cursorRow = i
+			e.editableRichText.CursorRow = i
 			e.editableRichText.cursorCol = idx
 			e.editableRichText.Refresh()
 			e.cursorRow = i
