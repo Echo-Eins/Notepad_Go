@@ -291,10 +291,17 @@ func (w *EditableRichTextWidget) updateRichTextSegments() {
 
 		// Применяем цвет к сегменту
 		if style != nil {
+			// Конвертируем chroma.Colour в color.Color
+			tokenColor := color.RGBA{
+				R: style.Colour.Red(),
+				G: style.Colour.Green(),
+				B: style.Colour.Blue(),
+				A: 255,
+			}
 			// Используем canvas.Text с цветом из стиля
 			textObj := &coloredTextSegment{
 				text:  token.Value,
-				color: style.Colour,
+				color: tokenColor,
 				style: widget.RichTextStyle{
 					Inline:   true,
 					SizeName: theme.SizeNameText,
