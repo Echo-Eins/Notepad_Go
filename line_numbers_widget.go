@@ -32,17 +32,17 @@ type LineNumbersWidget struct {
 	bufferLines      int // Дополнительные строки вне видимой области
 
 	// Цвета
-	backgroundColor color.Color
-	textColor       color.Color
-	bookmarkColor   color.Color
-	errorColor      color.Color
+	backgroundColor  color.Color
+	textColor        color.Color
+	bookmarkColor    color.Color
+	errorColor       color.Color
 	currentLineColor color.Color
 
 	// Синхронизация
-	scrollSync   *ScrollSynchronizer
-	observerID   string
-	currentLine  int
-	mutex        sync.RWMutex
+	scrollSync  *ScrollSynchronizer
+	observerID  string
+	currentLine int
+	mutex       sync.RWMutex
 
 	// Кэширование рендеринга
 	cachedLines  map[int]*canvas.Text
@@ -56,21 +56,21 @@ type LineNumbersWidget struct {
 // NewLineNumbersWidget создает новый виджет номеров строк
 func NewLineNumbersWidget(totalLines int, scrollSync *ScrollSynchronizer) *LineNumbersWidget {
 	widget := &LineNumbersWidget{
-		totalLines:      totalLines,
-		bookmarks:       make(map[int]bool),
-		lintErrors:      make(map[int]string),
-		lineHeight:      theme.TextSize() * 1.2,
-		bufferLines:     5, // Рендерим 5 дополнительных строк сверху и снизу
-		backgroundColor: theme.BackgroundColor(),
-		textColor:       theme.ForegroundColor(),
-		bookmarkColor:   color.RGBA{R: 255, G: 215, A: 0, A: 255}, // Gold
-		errorColor:      color.RGBA{R: 255, G: 0, B: 0, A: 255},
+		totalLines:       totalLines,
+		bookmarks:        make(map[int]bool),
+		lintErrors:       make(map[int]string),
+		lineHeight:       theme.TextSize() * 1.2,
+		bufferLines:      5, // Рендерим 5 дополнительных строк сверху и снизу
+		backgroundColor:  theme.BackgroundColor(),
+		textColor:        theme.ForegroundColor(),
+		bookmarkColor:    color.RGBA{R: 255, G: 215, B: 0, A: 255}, // Gold
+		errorColor:       color.RGBA{R: 255, G: 0, B: 0, A: 255},
 		currentLineColor: theme.PrimaryColor(),
-		scrollSync:      scrollSync,
-		observerID:      "line_numbers_widget",
-		cachedLines:     make(map[int]*canvas.Text),
-		cacheEnabled:    true,
-		maxCacheSize:    1000,
+		scrollSync:       scrollSync,
+		observerID:       "line_numbers_widget",
+		cachedLines:      make(map[int]*canvas.Text),
+		cacheEnabled:     true,
+		maxCacheSize:     1000,
 	}
 
 	widget.ExtendBaseWidget(widget)
@@ -103,7 +103,7 @@ func (w *LineNumbersWidget) OnScrollChanged(event ScrollEvent) {
 // CreateRenderer создает renderer для виджета
 func (w *LineNumbersWidget) CreateRenderer() fyne.WidgetRenderer {
 	return &lineNumbersRenderer{
-		widget: w,
+		widget:  w,
 		objects: []fyne.CanvasObject{},
 	}
 }

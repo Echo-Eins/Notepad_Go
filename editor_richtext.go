@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/driver/desktop"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 )
 
 // EditableRichTextWidget редактируемый RichText widget с подсветкой синтаксиса
@@ -39,12 +37,12 @@ type EditableRichTextWidget struct {
 	cursorStop    chan bool
 
 	// Подсветка синтаксиса
-	syntaxTokens   []chroma.Token
-	syntaxEnabled  bool
-	lexer          chroma.Lexer
-	syntaxStyle    *chroma.Style
-	syntaxCache    map[string][]chroma.Token
-	syntaxMutex    sync.RWMutex
+	syntaxTokens  []chroma.Token
+	syntaxEnabled bool
+	lexer         chroma.Lexer
+	syntaxStyle   *chroma.Style
+	syntaxCache   map[string][]chroma.Token
+	syntaxMutex   sync.RWMutex
 
 	// Виртуализация
 	firstVisibleLine int
@@ -53,22 +51,22 @@ type EditableRichTextWidget struct {
 	scrollOffset     float32
 
 	// Метрики текста
-	lineHeight   float32
-	charWidth    float32
-	fontSize     float32
+	lineHeight float32
+	charWidth  float32
+	fontSize   float32
 
 	// Цвета
-	backgroundColor    color.Color
-	textColor          color.Color
-	cursorColor        color.Color
-	selectionColor     color.Color
-	currentLineColor   color.Color
+	backgroundColor  color.Color
+	textColor        color.Color
+	cursorColor      color.Color
+	selectionColor   color.Color
+	currentLineColor color.Color
 
 	// Рендеринг
-	renderCache     map[int]*renderedLine
-	cacheEnabled    bool
-	maxCacheSize    int
-	lastRenderHash  uint64
+	renderCache    map[int]*renderedLine
+	cacheEnabled   bool
+	maxCacheSize   int
+	lastRenderHash uint64
 
 	// Callbacks
 	onChanged       func(text string)
@@ -80,10 +78,10 @@ type EditableRichTextWidget struct {
 	observerID string
 
 	// Настройки
-	tabSize      int
-	wrapMode     fyne.TextWrap
-	readOnly     bool
-	multiLine    bool
+	tabSize   int
+	wrapMode  fyne.TextWrap
+	readOnly  bool
+	multiLine bool
 
 	// Фокус
 	focused bool
@@ -100,28 +98,28 @@ type renderedLine struct {
 // NewEditableRichTextWidget создает новый редактируемый RichText виджет
 func NewEditableRichTextWidget() *EditableRichTextWidget {
 	widget := &EditableRichTextWidget{
-		lines:              []string{""},
-		cursorRow:          0,
-		cursorCol:          0,
-		cursorColor:        theme.PrimaryColor(),
-		backgroundColor:    theme.BackgroundColor(),
-		textColor:          theme.ForegroundColor(),
-		selectionColor:     theme.SelectionColor(),
-		currentLineColor:   color.RGBA{R: 64, G: 64, B: 64, A: 50},
-		fontSize:           theme.TextSize(),
-		lineHeight:         theme.TextSize() * 1.2,
-		charWidth:          MeasureString("M", theme.TextSize()).Width,
-		bufferLines:        10,
-		renderCache:        make(map[int]*renderedLine),
-		syntaxCache:        make(map[string][]chroma.Token),
-		cacheEnabled:       true,
-		maxCacheSize:       500,
-		syntaxEnabled:      true,
-		tabSize:            4,
-		wrapMode:           fyne.TextWrapOff,
-		multiLine:          true,
-		observerID:         "editable_richtext_widget",
-		cursorStop:         make(chan bool, 1),
+		lines:            []string{""},
+		cursorRow:        0,
+		cursorCol:        0,
+		cursorColor:      theme.PrimaryColor(),
+		backgroundColor:  theme.BackgroundColor(),
+		textColor:        theme.ForegroundColor(),
+		selectionColor:   theme.SelectionColor(),
+		currentLineColor: color.RGBA{R: 64, G: 64, B: 64, A: 50},
+		fontSize:         theme.TextSize(),
+		lineHeight:       theme.TextSize() * 1.2,
+		charWidth:        MeasureString("M", theme.TextSize()).Width,
+		bufferLines:      10,
+		renderCache:      make(map[int]*renderedLine),
+		syntaxCache:      make(map[string][]chroma.Token),
+		cacheEnabled:     true,
+		maxCacheSize:     500,
+		syntaxEnabled:    true,
+		tabSize:          4,
+		wrapMode:         fyne.TextWrapOff,
+		multiLine:        true,
+		observerID:       "editable_richtext_widget",
+		cursorStop:       make(chan bool, 1),
 	}
 
 	widget.ExtendBaseWidget(widget)
