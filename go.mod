@@ -4,6 +4,7 @@ go 1.24.5
 
 require (
 	fyne.io/fyne/v2 v2.6.3
+	github.com/BurntSushi/toml v1.5.0
 	github.com/alecthomas/chroma/v2 v2.20.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/lithammer/fuzzysearch v1.1.8
@@ -11,13 +12,10 @@ require (
 	github.com/sourcegraph/go-lsp v0.0.0-20240223163137-f80c5dd31dfd
 	github.com/sourcegraph/jsonrpc2 v0.2.1
 	golang.org/x/text v0.28.0
-	github.com/sourcegraph/go-lsp v0.0.0-20240223163137-f80c5dd31dfd
-    github.com/sourcegraph/jsonrpc2 v0.2.1
 )
 
 require (
 	fyne.io/systray v1.11.0 // indirect
-	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
