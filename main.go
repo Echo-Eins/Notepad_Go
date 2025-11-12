@@ -850,7 +850,9 @@ func (a *App) goToBookmark() {
 			_ = cmd.Execute(a.editor)
 		}
 	}
-	dialog.NewCustom("Bookmarks", "Close", container.NewScroll(list), a.mainWin).Show()
+	d := dialog.NewCustom("Bookmarks", "Close", container.NewScroll(list), a.mainWin)
+	d.Resize(fyne.NewSize(600, 400)) // Устанавливаем подходящий размер
+	d.Show()
 }
 
 // removeBookmark deletes selected bookmark
@@ -879,7 +881,9 @@ func (a *App) removeBookmark() {
 			list.UnselectAll()
 		}
 	}
-	dialog.NewCustom("Remove Bookmark", "Close", container.NewScroll(list), a.mainWin).Show()
+	d := dialog.NewCustom("Remove Bookmark", "Close", container.NewScroll(list), a.mainWin)
+	d.Resize(fyne.NewSize(600, 400)) // Устанавливаем подходящий размер
+	d.Show()
 }
 
 func (a *App) showGoToSymbol() {
@@ -1894,17 +1898,17 @@ func (a *App) runCustomTool(tool CustomTool) {
 }
 
 func (a *App) applyFontSize() {
-	if a.editor == nil || a.editor.content == nil || a.appTheme == nil {
+	if a.editor == nil || a.editor.editableRichText == nil || a.appTheme == nil {
 		return
 	}
 
 	// Обновляем размер шрифта через тему
 	a.appTheme.SetFontSize(a.config.Editor.FontSize)
 	a.fyneApp.Settings().SetTheme(a.appTheme)
-	a.editor.content.Refresh()
+	a.editor.editableRichText.Refresh()
 
 	// Обновляем номера строк
-	if a.editor.lineNumbers != nil {
+	if a.editor.lineNumbersWidget != nil {
 		a.editor.updateLineNumbers()
 	}
 }
