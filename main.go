@@ -851,7 +851,7 @@ func (a *App) goToBookmark() {
 		}
 	}
 	d := dialog.NewCustom("Bookmarks", "Close", container.NewScroll(list), a.mainWin)
-	d.Resize(fyne.NewSize(600, 400)) // Устанавливаем подходящий размер
+	d.Resize(fyne.NewSize(600, 400))
 	d.Show()
 }
 
@@ -882,7 +882,7 @@ func (a *App) removeBookmark() {
 		}
 	}
 	d := dialog.NewCustom("Remove Bookmark", "Close", container.NewScroll(list), a.mainWin)
-	d.Resize(fyne.NewSize(600, 400)) // Устанавливаем подходящий размер
+	d.Resize(fyne.NewSize(600, 400))
 	d.Show()
 }
 

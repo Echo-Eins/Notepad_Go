@@ -754,7 +754,7 @@ func DefaultConfig() *Config {
 					},
 					"java": {
 						Name:    "google-java-format",
-						Path:    toolPath("google-java-format.jar"),
+						Path:    toolPath("google-javaю-format.jar"),
 						Args:    []string{"-"},
 						Enabled: true,
 					},
