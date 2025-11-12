@@ -1251,7 +1251,9 @@ func (e *EditorWidget) ExpandSelection() {
 func (e *EditorWidget) ShrinkSelection() {
 	e.selectionStart = TextPosition{}
 	e.selectionEnd = TextPosition{}
-	e.content.SetText(e.textContent)
+	if e.editableRichText != nil {
+		e.editableRichText.SetText(e.textContent)
+	}
 }
 
 // AddCursorAbove добавляет курсор выше текущего
@@ -1284,8 +1286,10 @@ func (e *EditorWidget) MoveCursorRight() {
 		e.cursorRow++
 		e.cursorCol = 0
 	}
-	e.content.CursorRow = e.cursorRow
-	e.content.CursorColumn = e.cursorCol
+	if e.editableRichText != nil {
+		e.editableRichText.cursorRow = e.cursorRow
+		e.editableRichText.cursorCol = e.cursorCol
+	}
 	if e.onCursorChanged != nil {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
 	}
@@ -1301,7 +1305,9 @@ func (e *EditorWidget) DeleteCurrentLine() {
 		}
 		e.cursorCol = 0
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		if e.editableRichText != nil {
+			e.editableRichText.SetText(e.textContent)
+		}
 		e.isDirty = true
 		e.updateDisplay()
 	}
@@ -1319,7 +1325,9 @@ func (e *EditorWidget) InsertText(text string) {
 		lines[e.cursorRow] = newLine
 		e.cursorCol += len(text)
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		if e.editableRichText != nil {
+			e.editableRichText.SetText(e.textContent)
+		}
 		e.isDirty = true
 		e.updateDisplay()
 	}
@@ -1336,7 +1344,9 @@ func (e *EditorWidget) KillToEndOfLine() string {
 		killed := line[e.cursorCol:]
 		lines[e.cursorRow] = line[:e.cursorCol]
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		if e.editableRichText != nil {
+			e.editableRichText.SetText(e.textContent)
+		}
 		e.isDirty = true
 		e.updateDisplay()
 		return killed
@@ -1361,7 +1371,9 @@ func (e *EditorWidget) KillWord() string {
 		killed := rest[:loc[1]]
 		lines[e.cursorRow] = line[:e.cursorCol] + rest[loc[1]:]
 		e.textContent = strings.Join(lines, "\n")
-		e.content.SetText(e.textContent)
+		if e.editableRichText != nil {
+			e.editableRichText.SetText(e.textContent)
+		}
 		e.isDirty = true
 		e.updateDisplay()
 		return killed
@@ -1431,8 +1443,10 @@ func (e *EditorWidget) moveCursorToIndex(idx int) {
 	} else {
 		e.cursorCol = idx
 	}
-	e.content.CursorRow = e.cursorRow
-	e.content.CursorColumn = e.cursorCol
+	if e.editableRichText != nil {
+		e.editableRichText.cursorRow = e.cursorRow
+		e.editableRichText.cursorCol = e.cursorCol
+	}
 }
 
 // GetWordAtCursor возвращает слово под курсором
@@ -1491,8 +1505,10 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 	}
 	e.cursorRow = line
 	e.cursorCol = column
-	e.content.CursorRow = line
-	e.content.CursorColumn = column
+	if e.editableRichText != nil {
+		e.editableRichText.cursorRow = line
+		e.editableRichText.cursorCol = column
+	}
 	e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(line)*theme.TextSize()))
 }
 
@@ -2062,7 +2078,7 @@ func (e *EditorWidget) updateIndentGuides() {
 
 	charWidth := MeasureString(" ", theme.TextSize()).Width
 	lineHeight := MeasureString("M", theme.TextSize()).Height
-	innerPad := e.content.Theme().Size(theme.SizeNameInnerPadding) / 1.90
+	innerPad := theme.InnerPadding() / 1.90
 	// lineSpacing := lineHeight + innerPad
 
 	fyne.Do(func() {
@@ -2600,19 +2616,25 @@ func (e *EditorWidget) GetFilePath() string { return e.filePath }
 func (e *EditorWidget) GetFileName() string { return e.fileName }
 
 func (e *EditorWidget) showContextMenu(ev *fyne.PointEvent) {
-	c := fyne.CurrentApp().Driver().CanvasForObject(e.content)
+	c := fyne.CurrentApp().Driver().CanvasForObject(e.editableRichText)
 	if c == nil {
 		return
 	}
 	items := []*fyne.MenuItem{
 		fyne.NewMenuItem("Cut", func() {
-			e.content.TypedShortcut(&fyne.ShortcutCut{Clipboard: fyne.CurrentApp().Clipboard()})
+			if e.editableRichText != nil {
+				e.editableRichText.TypedShortcut(&fyne.ShortcutCut{Clipboard: fyne.CurrentApp().Clipboard()})
+			}
 		}),
 		fyne.NewMenuItem("Copy", func() {
-			e.content.TypedShortcut(&fyne.ShortcutCopy{Clipboard: fyne.CurrentApp().Clipboard()})
+			if e.editableRichText != nil {
+				e.editableRichText.TypedShortcut(&fyne.ShortcutCopy{Clipboard: fyne.CurrentApp().Clipboard()})
+			}
 		}),
 		fyne.NewMenuItem("Paste", func() {
-			e.content.TypedShortcut(&fyne.ShortcutPaste{Clipboard: fyne.CurrentApp().Clipboard()})
+			if e.editableRichText != nil {
+				e.editableRichText.TypedShortcut(&fyne.ShortcutPaste{Clipboard: fyne.CurrentApp().Clipboard()})
+			}
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Select All", func() {
@@ -2689,11 +2711,13 @@ func (e *EditorWidget) goToDefinition(name string) {
 	lines := strings.Split(e.textContent, "\n")
 	for i, line := range lines {
 		if idx := strings.Index(line, name); idx >= 0 {
-			e.content.CursorRow = i
-			e.content.CursorColumn = idx
-			e.content.Refresh()
 			e.cursorRow = i
 			e.cursorCol = idx
+			if e.editableRichText != nil {
+				e.editableRichText.cursorRow = i
+				e.editableRichText.cursorCol = idx
+				e.editableRichText.Refresh()
+			}
 			e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(i)*theme.TextSize()))
 			break
 		}

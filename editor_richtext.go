@@ -743,6 +743,116 @@ func (w *EditableRichTextWidget) Cleanup() {
 	w.syntaxCache = make(map[string][]chroma.Token)
 }
 
+// GetSelectedText возвращает выделенный текст
+func (w *EditableRichTextWidget) GetSelectedText() string {
+	w.mutex.RLock()
+	defer w.mutex.RUnlock()
+
+	if !w.selecting {
+		return ""
+	}
+
+	start := w.selectionStart
+	end := w.selectionEnd
+
+	// Нормализуем порядок (start должен быть раньше end)
+	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	// Одна строка
+	if start.Row == end.Row {
+		if start.Row < 0 || start.Row >= len(w.lines) {
+			return ""
+		}
+		line := w.lines[start.Row]
+		if start.Col < 0 {
+			start.Col = 0
+		}
+		if end.Col > len(line) {
+			end.Col = len(line)
+		}
+		if start.Col >= end.Col {
+			return ""
+		}
+		return line[start.Col:end.Col]
+	}
+
+	// Несколько строк
+	var result strings.Builder
+	for row := start.Row; row <= end.Row; row++ {
+		if row < 0 || row >= len(w.lines) {
+			continue
+		}
+		line := w.lines[row]
+		if row == start.Row {
+			// Первая строка - от start.Col до конца
+			if start.Col < len(line) {
+				result.WriteString(line[start.Col:])
+			}
+		} else if row == end.Row {
+			// Последняя строка - от начала до end.Col
+			if end.Col > 0 && end.Col <= len(line) {
+				result.WriteString(line[:end.Col])
+			}
+		} else {
+			// Средние строки - полностью
+			result.WriteString(line)
+		}
+		if row < end.Row {
+			result.WriteRune('\n')
+		}
+	}
+	return result.String()
+}
+
+// SelectAll выделяет весь текст
+func (w *EditableRichTextWidget) SelectAll() {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	w.selectionStart = TextPosition{Row: 0, Col: 0}
+	if len(w.lines) > 0 {
+		lastRow := len(w.lines) - 1
+		w.selectionEnd = TextPosition{Row: lastRow, Col: len(w.lines[lastRow])}
+	} else {
+		w.selectionEnd = TextPosition{Row: 0, Col: 0}
+	}
+	w.selecting = true
+	w.Refresh()
+}
+
+// TypedShortcut обрабатывает горячие клавиши (Cut, Copy, Paste, SelectAll)
+func (w *EditableRichTextWidget) TypedShortcut(shortcut fyne.Shortcut) {
+	switch sc := shortcut.(type) {
+	case *fyne.ShortcutCut:
+		// Cut - копируем выделенное в буфер и удаляем
+		selected := w.GetSelectedText()
+		if selected != "" && sc.Clipboard != nil {
+			sc.Clipboard.SetContent(selected)
+			// TODO: Удалить выделенный текст
+			w.selecting = false
+			w.Refresh()
+		}
+	case *fyne.ShortcutCopy:
+		// Copy - копируем выделенное в буфер
+		selected := w.GetSelectedText()
+		if selected != "" && sc.Clipboard != nil {
+			sc.Clipboard.SetContent(selected)
+		}
+	case *fyne.ShortcutPaste:
+		// Paste - вставляем из буфера
+		if sc.Clipboard != nil {
+			content := sc.Clipboard.Content()
+			// TODO: Вставить content в текущую позицию курсора
+			w.Refresh()
+		}
+	case *fyne.ShortcutSelectAll:
+		// Select All - выделяем весь текст
+		w.SelectAll()
+	}
+}
+
 // editableRichTextRenderer рендерер для EditableRichTextWidget
 type editableRichTextRenderer struct {
 	widget  *EditableRichTextWidget
