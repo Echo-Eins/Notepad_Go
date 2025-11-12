@@ -85,6 +85,9 @@ type EditableRichTextWidget struct {
 
 	// Фокус
 	focused bool
+
+	// Внутренний RichText для отображения
+	richText *widget.RichText
 }
 
 // renderedLine кэшированная отрендеренная строка
@@ -122,17 +125,33 @@ func NewEditableRichTextWidget() *EditableRichTextWidget {
 		cursorStop:       make(chan bool, 1),
 	}
 
+	// Создаем внутренний RichText для отображения
+	widget.richText = widget.NewRichText()
+	widget.richText.Wrapping = fyne.TextWrapOff
+
 	widget.ExtendBaseWidget(widget)
 	widget.startCursorBlink()
 
 	return widget
 }
 
+// NewRichText создает новый RichText widget для отображения
+func (w *EditableRichTextWidget) NewRichText() *widget.RichText {
+	rt := widget.NewRichText()
+	rt.Wrapping = w.wrapMode
+	return rt
+}
+
 // CreateRenderer создает renderer для виджета
 func (w *EditableRichTextWidget) CreateRenderer() fyne.WidgetRenderer {
+	// Если richText еще не создан, создаем
+	if w.richText == nil {
+		w.richText = w.NewRichText()
+	}
+
 	return &editableRichTextRenderer{
 		widget:  w,
-		objects: []fyne.CanvasObject{},
+		objects: []fyne.CanvasObject{w.richText},
 	}
 }
 
@@ -194,36 +213,63 @@ func (w *EditableRichTextWidget) EnableSyntax(enabled bool) {
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (w *EditableRichTextWidget) applySyntaxHighlighting() {
-	if !w.syntaxEnabled || w.lexer == nil {
-		return
-	}
+	// Обновляем richText с текстом
+	if w.richText != nil {
+		if !w.syntaxEnabled || w.lexer == nil {
+			// Без подсветки - просто показываем текст
+			w.richText.ParseMarkdown(w.text)
+			return
+		}
 
-	// Проверяем кэш
-	w.syntaxMutex.RLock()
-	if cached, ok := w.syntaxCache[w.text]; ok {
-		w.syntaxTokens = cached
+		// Проверяем кэш
+		w.syntaxMutex.RLock()
+		if cached, ok := w.syntaxCache[w.text]; ok {
+			w.syntaxTokens = cached
+			w.syntaxMutex.RUnlock()
+			w.updateRichTextSegments()
+			return
+		}
 		w.syntaxMutex.RUnlock()
+
+		// Токенизируем текст
+		iterator, err := w.lexer.Tokenise(nil, w.text)
+		if err != nil {
+			w.richText.ParseMarkdown(w.text)
+			return
+		}
+
+		tokens := iterator.Tokens()
+		w.syntaxMutex.Lock()
+		w.syntaxTokens = tokens
+
+		// Сохраняем в кэш (ограничиваем размер)
+		if len(w.syntaxCache) > 100 {
+			// Простая стратегия: очищаем кэш полностью
+			w.syntaxCache = make(map[string][]chroma.Token)
+		}
+		w.syntaxCache[w.text] = tokens
+		w.syntaxMutex.Unlock()
+
+		// Обновляем RichText segments
+		w.updateRichTextSegments()
+	}
+}
+
+// updateRichTextSegments обновляет segments в richText на основе токенов
+func (w *EditableRichTextWidget) updateRichTextSegments() {
+	if w.richText == nil {
 		return
 	}
-	w.syntaxMutex.RUnlock()
 
-	// Токенизируем текст
-	iterator, err := w.lexer.Tokenise(nil, w.text)
-	if err != nil {
+	if len(w.syntaxTokens) == 0 {
+		w.richText.ParseMarkdown(w.text)
 		return
 	}
 
-	tokens := iterator.Tokens()
-	w.syntaxMutex.Lock()
-	w.syntaxTokens = tokens
-
-	// Сохраняем в кэш (ограничиваем размер)
-	if len(w.syntaxCache) > 100 {
-		// Простая стратегия: очищаем кэш полностью
-		w.syntaxCache = make(map[string][]chroma.Token)
-	}
-	w.syntaxCache[w.text] = tokens
-	w.syntaxMutex.Unlock()
+	// Создаем segments из токенов
+	// Упрощенная версия - просто показываем текст
+	// TODO: Добавить раскраску токенов
+	w.richText.ParseMarkdown(w.text)
 }
 
 // TypedRune обрабатывает ввод символа
@@ -860,16 +906,24 @@ type editableRichTextRenderer struct {
 }
 
 func (r *editableRichTextRenderer) Layout(size fyne.Size) {
-	// TODO: Полная реализация рендеринга с виртуализацией
-	r.objects = []fyne.CanvasObject{}
+	// Размещаем richText на весь доступный размер
+	if r.widget.richText != nil {
+		r.widget.richText.Resize(size)
+		r.widget.richText.Move(fyne.NewPos(0, 0))
+	}
 }
 
 func (r *editableRichTextRenderer) MinSize() fyne.Size {
-	return r.widget.MinSize()
+	if r.widget.richText != nil {
+		return r.widget.richText.MinSize()
+	}
+	return fyne.NewSize(100, 100)
 }
 
 func (r *editableRichTextRenderer) Refresh() {
-	r.Layout(r.widget.Size())
+	if r.widget.richText != nil {
+		r.widget.richText.Refresh()
+	}
 	canvas.Refresh(r.widget)
 }
 
