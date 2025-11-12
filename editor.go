@@ -594,8 +594,8 @@ func (e *EditorWidget) setupComponents() {
 	e.editableRichText.onCursorChanged = func(row, col int) {
 		e.cursorRow = row
 		e.cursorCol = col
-		if e.lineNumbersWidgetWidget != nil {
-			e.lineNumbersWidgetWidget.SetCurrentLine(row + 1)
+		if e.lineNumbersWidget != nil {
+			e.lineNumbersWidget.SetCurrentLine(row + 1)
 		}
 		if e.onCursorChanged != nil {
 			e.onCursorChanged(row, col)
@@ -607,8 +607,8 @@ func (e *EditorWidget) setupComponents() {
 	if lineCount == 0 {
 		lineCount = 1
 	}
-	e.lineNumbersWidgetWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
-	e.lineNumbersWidgetWidget.SetCurrentLine(e.cursorRow + 1)
+	e.lineNumbersWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
+	e.lineNumbersWidget.SetCurrentLine(e.cursorRow + 1)
 
 	// Обновляем bookmarks и lint errors если есть
 	if len(e.bookmarks) > 0 {
@@ -616,14 +616,14 @@ func (e *EditorWidget) setupComponents() {
 		for i, b := range e.bookmarks {
 			bookmarkLines[i] = b.StartLine
 		}
-		e.lineNumbersWidgetWidget.SetBookmarks(bookmarkLines)
+		e.lineNumbersWidget.SetBookmarks(bookmarkLines)
 	}
 	if e.lintLines != nil && len(e.lintLines) > 0 {
-		e.lineNumbersWidgetWidget.SetLintErrors(e.lintLines)
+		e.lineNumbersWidget.SetLintErrors(e.lintLines)
 	}
 
 	// Обработчик клика по номеру строки
-	e.lineNumbersWidgetWidget.SetOnLineClicked(func(line int) {
+	e.lineNumbersWidget.SetOnLineClicked(func(line int) {
 		// Перемещаем курсор на эту строку
 		if line > 0 && line <= lineCount {
 			e.cursorRow = line - 1
@@ -646,7 +646,7 @@ func (e *EditorWidget) setupComponents() {
 
 	var editorContent fyne.CanvasObject
 	if e.config.Editor.ShowLineNumbers {
-		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbersWidgetWidget)
+		leftPanel := container.NewBorder(nil, nil, e.indicatorContainer, nil, e.lineNumbersWidget)
 		editorContent = container.NewBorder(nil, nil, leftPanel, nil, editorLayer)
 	} else if e.config.Editor.CodeFolding {
 		editorContent = container.NewBorder(nil, nil, e.indicatorContainer, nil, editorLayer)
@@ -1252,7 +1252,7 @@ func (e *EditorWidget) MoveCursorRight() {
 		e.cursorRow++
 		e.cursorCol = 0
 	}
-	e.editableRichText.CursorRow = e.cursorRow
+	e.editableRichText.cursorRow = e.cursorRow
 	e.editableRichText.cursorCol = e.cursorCol
 	if e.onCursorChanged != nil {
 		e.onCursorChanged(e.cursorRow, e.cursorCol)
@@ -1399,7 +1399,7 @@ func (e *EditorWidget) moveCursorToIndex(idx int) {
 	} else {
 		e.cursorCol = idx
 	}
-	e.editableRichText.CursorRow = e.cursorRow
+	e.editableRichText.cursorRow = e.cursorRow
 	e.editableRichText.cursorCol = e.cursorCol
 }
 
@@ -1459,7 +1459,7 @@ func (e *EditorWidget) GoToPosition(line, column int) {
 	}
 	e.cursorRow = line
 	e.cursorCol = column
-	e.editableRichText.CursorRow = line
+	e.editableRichText.cursorRow = line
 	e.editableRichText.cursorCol = column
 	e.scrollContainer.ScrollToOffset(fyne.NewPos(0, float32(line)*theme.TextSize()))
 }
@@ -2728,7 +2728,7 @@ func (e *EditorWidget) goToDefinition(name string) {
 	lines := strings.Split(e.textContent, "\n")
 	for i, line := range lines {
 		if idx := strings.Index(line, name); idx >= 0 {
-			e.editableRichText.CursorRow = i
+			e.editableRichText.cursorRow = i
 			e.editableRichText.cursorCol = idx
 			e.editableRichText.Refresh()
 			e.cursorRow = i
