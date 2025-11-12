@@ -1074,22 +1074,36 @@ func (vh *VimHandler) replaceChar(ch rune) {
 }
 
 func (vh *VimHandler) undo() {
-	if vh.editor == nil || vh.editor.content == nil {
+	if vh.editor == nil || vh.editor.editableRichText == nil {
 		return
 	}
-	vh.editor.content.Undo()
-	vh.editor.cursorRow = vh.editor.content.CursorRow
-	vh.editor.cursorCol = vh.editor.content.CursorColumn
+	// Undo через EditorWidget (используем undoStack)
+	if len(vh.editor.undoStack) > 0 {
+		cmd := vh.editor.undoStack[len(vh.editor.undoStack)-1]
+		vh.editor.undoStack = vh.editor.undoStack[:len(vh.editor.undoStack)-1]
+		cmd.Undo()
+	}
+	if vh.editor.editableRichText != nil {
+		vh.editor.cursorRow = vh.editor.editableRichText.cursorRow
+		vh.editor.cursorCol = vh.editor.editableRichText.cursorCol
+	}
 	vh.editor.updateDisplay()
 }
 
 func (vh *VimHandler) redo() {
-	if vh.editor == nil || vh.editor.content == nil {
+	if vh.editor == nil || vh.editor.editableRichText == nil {
 		return
 	}
-	vh.editor.content.Redo()
-	vh.editor.cursorRow = vh.editor.content.CursorRow
-	vh.editor.cursorCol = vh.editor.content.CursorColumn
+	// Redo через EditorWidget (используем redoStack)
+	if len(vh.editor.redoStack) > 0 {
+		cmd := vh.editor.redoStack[len(vh.editor.redoStack)-1]
+		vh.editor.redoStack = vh.editor.redoStack[:len(vh.editor.redoStack)-1]
+		cmd.Execute(vh.editor)
+	}
+	if vh.editor.editableRichText != nil {
+		vh.editor.cursorRow = vh.editor.editableRichText.cursorRow
+		vh.editor.cursorCol = vh.editor.editableRichText.cursorCol
+	}
 	vh.editor.updateDisplay()
 }
 
@@ -1303,8 +1317,10 @@ func (vh *VimHandler) scrollLines(lines int) {
 	}
 	vh.editor.cursorRow = newRow
 	vh.adjustCursorColumn()
-	vh.editor.content.CursorRow = vh.editor.cursorRow
-	vh.editor.content.CursorColumn = vh.editor.cursorCol
+	if vh.editor.editableRichText != nil {
+		vh.editor.editableRichText.cursorRow = vh.editor.cursorRow
+		vh.editor.editableRichText.cursorCol = vh.editor.cursorCol
+	}
 
 	// Calculate new scroll offset
 	viewportHeight := vh.editor.scrollContainer.Size().Height
@@ -1360,8 +1376,10 @@ func (vh *VimHandler) jumpToMatchingBracket() {
 	vh.addToJumpList()
 	vh.editor.cursorRow = target.Row
 	vh.editor.cursorCol = target.Col
-	vh.editor.content.CursorRow = target.Row
-	vh.editor.content.CursorColumn = target.Col
+	if vh.editor.editableRichText != nil {
+		vh.editor.editableRichText.cursorRow = target.Row
+		vh.editor.editableRichText.cursorCol = target.Col
+	}
 	vh.editor.updateDisplay()
 }
 
@@ -1484,21 +1502,26 @@ func (vh *VimHandler) setOption(option string) {
 	case "number":
 		vh.editor.config.Editor.ShowLineNumbers = true
 		vh.editor.updateLineNumbers()
-		editorLayer := container.NewMax(vh.editor.richContent, vh.editor.content)
-		vh.editor.scrollContainer.Content = container.NewBorder(nil, nil, container.NewVBox(vh.editor.lineNumbers), nil, editorLayer)
+		// Layout теперь управляется в setupComponents, просто обновляем
+		if vh.editor.lineNumbersWidget != nil {
+			vh.editor.lineNumbersWidget.Show()
+		}
 		vh.editor.scrollContainer.Refresh()
 	case "nonumber":
 		vh.editor.config.Editor.ShowLineNumbers = false
-		editorLayer := container.NewMax(vh.editor.richContent, vh.editor.content)
-		vh.editor.scrollContainer.Content = editorLayer
-		vh.editor.scrollContainer.Refresh()
+		// Скрываем виджет номеров строк
+		if vh.editor.lineNumbersWidget != nil {
+			vh.editor.lineNumbersWidget.Hide()
+		}
 		vh.editor.scrollContainer.Refresh()
 	case "wrap":
 		vh.editor.config.Editor.WordWrap = true
-		vh.editor.content.Wrapping = fyne.TextWrapWord
+		// TODO: Implement word wrap in EditableRichTextWidget
+		// vh.editor.editableRichText.SetWordWrap(true)
 	case "nowrap":
 		vh.editor.config.Editor.WordWrap = false
-		vh.editor.content.Wrapping = fyne.TextWrapOff
+		// TODO: Implement word wrap in EditableRichTextWidget
+		// vh.editor.editableRichText.SetWordWrap(false)
 	default:
 		dialog.ShowInformation("Unknown option", fmt.Sprintf("Unknown option: %s", option), fyne.CurrentApp().Driver().AllWindows()[0])
 	}

@@ -843,7 +843,7 @@ func (w *EditableRichTextWidget) TypedShortcut(shortcut fyne.Shortcut) {
 	case *fyne.ShortcutPaste:
 		// Paste - вставляем из буфера
 		if sc.Clipboard != nil {
-			content := sc.Clipboard.Content()
+			_ = sc.Clipboard.Content()
 			// TODO: Вставить content в текущую позицию курсора
 			w.Refresh()
 		}

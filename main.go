@@ -1898,17 +1898,17 @@ func (a *App) runCustomTool(tool CustomTool) {
 }
 
 func (a *App) applyFontSize() {
-	if a.editor == nil || a.editor.content == nil || a.appTheme == nil {
+	if a.editor == nil || a.editor.editableRichText == nil || a.appTheme == nil {
 		return
 	}
 
 	// Обновляем размер шрифта через тему
 	a.appTheme.SetFontSize(a.config.Editor.FontSize)
 	a.fyneApp.Settings().SetTheme(a.appTheme)
-	a.editor.content.Refresh()
+	a.editor.editableRichText.Refresh()
 
 	// Обновляем номера строк
-	if a.editor.lineNumbers != nil {
+	if a.editor.lineNumbersWidget != nil {
 		a.editor.updateLineNumbers()
 	}
 }
