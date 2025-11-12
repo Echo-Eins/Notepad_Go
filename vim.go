@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -1081,7 +1080,7 @@ func (vh *VimHandler) undo() {
 	if len(vh.editor.undoStack) > 0 {
 		cmd := vh.editor.undoStack[len(vh.editor.undoStack)-1]
 		vh.editor.undoStack = vh.editor.undoStack[:len(vh.editor.undoStack)-1]
-		cmd.Undo()
+		cmd.Undo(vh.editor)
 	}
 	if vh.editor.editableRichText != nil {
 		vh.editor.cursorRow = vh.editor.editableRichText.cursorRow
