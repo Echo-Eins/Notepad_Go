@@ -1515,12 +1515,16 @@ func (vh *VimHandler) setOption(option string) {
 		vh.editor.scrollContainer.Refresh()
 	case "wrap":
 		vh.editor.config.Editor.WordWrap = true
-		// TODO: Implement word wrap in EditableRichTextWidget
-		// vh.editor.editableRichText.SetWordWrap(true)
+		// Включаем перенос слов в EditableRichTextWidget
+		if vh.editor.editableRichText != nil {
+			vh.editor.editableRichText.SetWordWrap(true)
+		}
 	case "nowrap":
 		vh.editor.config.Editor.WordWrap = false
-		// TODO: Implement word wrap in EditableRichTextWidget
-		// vh.editor.editableRichText.SetWordWrap(false)
+		// Выключаем перенос слов в EditableRichTextWidget
+		if vh.editor.editableRichText != nil {
+			vh.editor.editableRichText.SetWordWrap(false)
+		}
 	default:
 		dialog.ShowInformation("Unknown option", fmt.Sprintf("Unknown option: %s", option), fyne.CurrentApp().Driver().AllWindows()[0])
 	}

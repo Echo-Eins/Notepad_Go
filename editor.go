@@ -583,12 +583,43 @@ func (e *EditorWidget) setupComponents() {
 	// Создаем RichText для отображения с подсветкой
 	e.richContent = widget.NewRichText()
 
-	// Создаем виджет номеров строк
-	e.lineNumbers = widget.NewLabel("")
-	e.lineNumbers.Wrapping = fyne.TextWrapOff
-	e.lineNumbers.Alignment = fyne.TextAlignTrailing
-	e.lineNumbers.TextStyle = fyne.TextStyle{Monospace: true}
-	e.updateLineNumbers()
+	// Подключаем syntax highlighting
+	if e.lexer != nil && e.style != nil {
+		e.editableRichText.SetSyntaxLexer(e.lexer, e.style)
+	}
+
+	// ✅ Создаем виджет номеров строк с виртуализацией
+	lineCount := len(strings.Split(e.textContent, "\n"))
+	if lineCount == 0 {
+		lineCount = 1
+	}
+	e.lineNumbersWidget = NewLineNumbersWidget(lineCount, e.scrollSync)
+	e.lineNumbersWidget.SetCurrentLine(e.cursorRow + 1)
+
+	// Обновляем bookmarks и lint errors если есть
+	if len(e.bookmarks) > 0 {
+		bookmarkLines := make([]int, len(e.bookmarks))
+		for i, b := range e.bookmarks {
+			bookmarkLines[i] = b.StartLine
+		}
+		e.lineNumbersWidget.SetBookmarks(bookmarkLines)
+	}
+	if e.lintLines != nil && len(e.lintLines) > 0 {
+		e.lineNumbersWidget.SetLintErrors(e.lintLines)
+	}
+
+	// Обработчик клика по номеру строки
+	e.lineNumbersWidget.SetOnLineClicked(func(line int) {
+		// Перемещаем курсор на эту строку
+		if line > 0 && line <= lineCount {
+			e.cursorRow = line - 1
+			e.cursorCol = 0
+			// Обновляем позицию курсора в editableRichText
+			if e.editableRichText != nil {
+				e.editableRichText.SetCursorPosition(e.cursorRow, e.cursorCol)
+			}
+		}
+	})
 
 	// Контейнер для направляющих отступа
 	e.indentContainer = container.NewWithoutLayout()

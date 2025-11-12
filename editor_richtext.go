@@ -552,7 +552,7 @@ func (w *EditableRichTextWidget) moveCursorEnd(mods fyne.KeyModifier) {
 func (w *EditableRichTextWidget) moveCursorPageUp(mods fyne.KeyModifier) {
 	startSel := w.hasSelection()
 
-	linesPerPage := 20 // TODO: вычислить из viewport size
+	linesPerPage := w.calculateVisibleLines()
 	w.cursorRow -= linesPerPage
 	if w.cursorRow < 0 {
 		w.cursorRow = 0
@@ -570,7 +570,7 @@ func (w *EditableRichTextWidget) moveCursorPageUp(mods fyne.KeyModifier) {
 func (w *EditableRichTextWidget) moveCursorPageDown(mods fyne.KeyModifier) {
 	startSel := w.hasSelection()
 
-	linesPerPage := 20 // TODO: вычислить из viewport size
+	linesPerPage := w.calculateVisibleLines()
 	w.cursorRow += linesPerPage
 	if w.cursorRow >= len(w.lines) {
 		w.cursorRow = len(w.lines) - 1
@@ -754,12 +754,19 @@ var _ desktop.Keyable = (*EditableRichTextWidget)(nil)
 // Tapped обрабатывает клик
 func (w *EditableRichTextWidget) Tapped(event *fyne.PointEvent) {
 	w.focused = true
-	// TODO: установить позицию курсора по координатам клика
+
+	// Устанавливаем позицию курсора по координатам клика
+	row, col := w.coordinatesToPosition(event.Position)
+	w.SetCursorPosition(row, col)
+
+	// Сбрасываем выделение при обычном клике
+	w.clearSelection()
 }
 
 // Dragged обрабатывает перетаскивание (выделение)
 func (w *EditableRichTextWidget) Dragged(event *fyne.DragEvent) {
-	// TODO: обновить выделение
+	// Обновляем выделение при перетаскивании
+	w.updateSelection(event.Position)
 }
 
 // DragEnd завершает перетаскивание
@@ -787,6 +794,210 @@ func (w *EditableRichTextWidget) Cleanup() {
 
 	w.renderCache = make(map[int]*renderedLine)
 	w.syntaxCache = make(map[string][]chroma.Token)
+}
+
+// SetWordWrap устанавливает режим переноса слов
+func (w *EditableRichTextWidget) SetWordWrap(wrap bool) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	if wrap {
+		w.wrapMode = fyne.TextWrapWord
+	} else {
+		w.wrapMode = fyne.TextWrapOff
+	}
+
+	// Обновляем внутренний richText
+	if w.richText != nil {
+		w.richText.Wrapping = w.wrapMode
+		w.richText.Refresh()
+	}
+
+	// Очищаем кеш рендеринга, т.к. перенос влияет на отображение
+	w.clearRenderCache()
+	w.Refresh()
+}
+
+// GetWordWrap возвращает текущий режим переноса слов
+func (w *EditableRichTextWidget) GetWordWrap() bool {
+	w.mutex.RLock()
+	defer w.mutex.RUnlock()
+	return w.wrapMode == fyne.TextWrapWord
+}
+
+// calculateVisibleLines вычисляет количество видимых строк на странице
+func (w *EditableRichTextWidget) calculateVisibleLines() int {
+	if w.lineHeight <= 0 {
+		return 20 // Fallback значение
+	}
+
+	// Получаем размер виджета через renderer
+	if r := w.CreateRenderer(); r != nil {
+		size := r.MinSize()
+		if size.Height > 0 {
+			linesPerPage := int(size.Height / w.lineHeight)
+			if linesPerPage < 1 {
+				linesPerPage = 1
+			}
+			return linesPerPage
+		}
+	}
+
+	// Fallback: 20 строк
+	return 20
+}
+
+// SetCursorPosition устанавливает позицию курсора
+func (w *EditableRichTextWidget) SetCursorPosition(row, col int) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	// Проверяем границы
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(w.lines) {
+		row = len(w.lines) - 1
+	}
+
+	if col < 0 {
+		col = 0
+	}
+	if row >= 0 && row < len(w.lines) && col > len(w.lines[row]) {
+		col = len(w.lines[row])
+	}
+
+	w.cursorRow = row
+	w.cursorCol = col
+	w.notifyCursorChanged()
+	w.Refresh()
+}
+
+// insertTextAtCursor вставляет текст в позицию курсора
+func (w *EditableRichTextWidget) insertTextAtCursor(text string) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	if w.readOnly {
+		return
+	}
+
+	// Удаляем выделение, если есть
+	if w.selecting {
+		w.deleteSelectionInternal()
+	}
+
+	// Разбиваем вставляемый текст на строки
+	insertLines := strings.Split(text, "\n")
+
+	if len(insertLines) == 1 {
+		// Вставка в одну строку
+		if w.cursorRow < len(w.lines) {
+			line := w.lines[w.cursorRow]
+			w.lines[w.cursorRow] = line[:w.cursorCol] + text + line[w.cursorCol:]
+			w.cursorCol += len(text)
+		}
+	} else {
+		// Многострочная вставка
+		if w.cursorRow < len(w.lines) {
+			line := w.lines[w.cursorRow]
+			before := line[:w.cursorCol]
+			after := line[w.cursorCol:]
+
+			// Первая строка: добавляем к началу текущей строки
+			w.lines[w.cursorRow] = before + insertLines[0]
+
+			// Средние строки: вставляем как новые
+			newLines := make([]string, len(w.lines)+len(insertLines)-1)
+			copy(newLines, w.lines[:w.cursorRow+1])
+			copy(newLines[w.cursorRow+1:], insertLines[1:])
+			copy(newLines[w.cursorRow+len(insertLines):], w.lines[w.cursorRow+1:])
+
+			// Последняя строка: объединяем с остатком текущей строки
+			lastLineIdx := w.cursorRow + len(insertLines) - 1
+			newLines[lastLineIdx] = insertLines[len(insertLines)-1] + after
+
+			w.lines = newLines
+			w.cursorRow = lastLineIdx
+			w.cursorCol = len(insertLines[len(insertLines)-1])
+		}
+	}
+
+	w.updateTextFromLines()
+	w.applySyntaxHighlighting()
+	w.notifyChanged()
+	w.notifyCursorChanged()
+}
+
+// deleteSelectionInternal удаляет выделенный текст (без блокировки)
+func (w *EditableRichTextWidget) deleteSelectionInternal() {
+	if !w.selecting {
+		return
+	}
+
+	start, end := w.normalizeSelection()
+
+	if start.Row == end.Row {
+		// Удаление в одной строке
+		line := w.lines[start.Row]
+		w.lines[start.Row] = line[:start.Col] + line[end.Col:]
+	} else {
+		// Многострочное удаление
+		startLine := w.lines[start.Row]
+		endLine := w.lines[end.Row]
+
+		// Объединяем начало первой строки и конец последней
+		w.lines[start.Row] = startLine[:start.Col] + endLine[end.Col:]
+
+		// Удаляем промежуточные строки
+		w.lines = append(w.lines[:start.Row+1], w.lines[end.Row+1:]...)
+	}
+
+	// Перемещаем курсор в начало удаленного фрагмента
+	w.cursorRow = start.Row
+	w.cursorCol = start.Col
+	w.clearSelection()
+}
+
+// coordinatesToPosition преобразует координаты клика в позицию курсора
+func (w *EditableRichTextWidget) coordinatesToPosition(pos fyne.Position) (row, col int) {
+	w.mutex.RLock()
+	defer w.mutex.RUnlock()
+
+	// Вычисляем строку
+	row = int(pos.Y / w.lineHeight)
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(w.lines) {
+		row = len(w.lines) - 1
+	}
+
+	// Вычисляем колонку (приблизительно)
+	if row >= 0 && row < len(w.lines) {
+		line := w.lines[row]
+		col = int(pos.X / w.charWidth)
+		if col < 0 {
+			col = 0
+		}
+		if col > len(line) {
+			col = len(line)
+		}
+	}
+
+	return row, col
+}
+
+// updateSelection обновляет выделение при перетаскивании
+func (w *EditableRichTextWidget) updateSelection(pos fyne.Position) {
+	row, col := w.coordinatesToPosition(pos)
+
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	w.selectionEnd = TextPosition{Row: row, Col: col}
+	w.selecting = true
+	w.Refresh()
 }
 
 // GetSelectedText возвращает выделенный текст
@@ -876,8 +1087,13 @@ func (w *EditableRichTextWidget) TypedShortcut(shortcut fyne.Shortcut) {
 		selected := w.GetSelectedText()
 		if selected != "" && sc.Clipboard != nil {
 			sc.Clipboard.SetContent(selected)
-			// TODO: Удалить выделенный текст
-			w.selecting = false
+			// Удаляем выделенный текст
+			w.mutex.Lock()
+			w.deleteSelectionInternal()
+			w.updateTextFromLines()
+			w.applySyntaxHighlighting()
+			w.notifyChanged()
+			w.mutex.Unlock()
 			w.Refresh()
 		}
 	case *fyne.ShortcutCopy:
@@ -889,9 +1105,11 @@ func (w *EditableRichTextWidget) TypedShortcut(shortcut fyne.Shortcut) {
 	case *fyne.ShortcutPaste:
 		// Paste - вставляем из буфера
 		if sc.Clipboard != nil {
-			_ = sc.Clipboard.Content()
-			// TODO: Вставить content в текущую позицию курсора
-			w.Refresh()
+			content := sc.Clipboard.Content()
+			if content != "" {
+				// Вставляем содержимое в текущую позицию курсора
+				w.insertTextAtCursor(content)
+			}
 		}
 	case *fyne.ShortcutSelectAll:
 		// Select All - выделяем весь текст
