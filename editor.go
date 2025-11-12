@@ -819,6 +819,30 @@ func (e *EditorWidget) TappedSecondary(event *fyne.PointEvent) {
 	e.showContextMenu(event)
 }
 
+// Scrolled обрабатывает события прокрутки колесика мыши
+// Реализует интерфейс fyne.Scrollable для поддержки mouse wheel scrolling
+func (e *EditorWidget) Scrolled(event *fyne.ScrollEvent) {
+	if e.scrollContainer == nil {
+		return
+	}
+
+	// Получаем текущее смещение
+	currentOffset := e.scrollContainer.Offset
+
+	// Рассчитываем новое смещение на основе события прокрутки
+	// ScrollEvent.Scrolled содержит смещение (положительное = вниз, отрицательное = вверх)
+	newY := currentOffset.Y - event.Scrolled.DY*30 // Умножаем на 30 для чувствительности
+
+	// Ограничиваем смещение
+	if newY < 0 {
+		newY = 0
+	}
+
+	// Применяем новое смещение
+	e.scrollContainer.Offset = fyne.NewPos(currentOffset.X, newY)
+	e.scrollContainer.Refresh()
+}
+
 // updateCursorPosition обновляет внутреннее состояние позиции курсора
 func (e *EditorWidget) updateCursorPosition() {
 	e.cursorRow = e.content.CursorRow

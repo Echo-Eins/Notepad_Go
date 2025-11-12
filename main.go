@@ -850,7 +850,9 @@ func (a *App) goToBookmark() {
 			_ = cmd.Execute(a.editor)
 		}
 	}
-	dialog.NewCustom("Bookmarks", "Close", container.NewScroll(list), a.mainWin).Show()
+	d := dialog.NewCustom("Bookmarks", "Close", container.NewScroll(list), a.mainWin)
+	d.Resize(fyne.NewSize(600, 400))
+	d.Show()
 }
 
 // removeBookmark deletes selected bookmark
@@ -879,7 +881,9 @@ func (a *App) removeBookmark() {
 			list.UnselectAll()
 		}
 	}
-	dialog.NewCustom("Remove Bookmark", "Close", container.NewScroll(list), a.mainWin).Show()
+	d := dialog.NewCustom("Remove Bookmark", "Close", container.NewScroll(list), a.mainWin)
+	d.Resize(fyne.NewSize(600, 400))
+	d.Show()
 }
 
 func (a *App) showGoToSymbol() {
