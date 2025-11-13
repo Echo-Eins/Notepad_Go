@@ -111,9 +111,8 @@ func (w *LineNumbersWidget) CreateRenderer() fyne.WidgetRenderer {
 // SetTotalLines устанавливает общее количество строк
 func (w *LineNumbersWidget) SetTotalLines(lines int) {
 	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	if w.totalLines == lines {
+		w.mutex.Unlock()
 		return
 	}
 
@@ -122,54 +121,47 @@ func (w *LineNumbersWidget) SetTotalLines(lines int) {
 	w.calculateWidth()
 	w.updateVisibleRange()
 	w.clearCache()
+	w.mutex.Unlock()
 
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.Refresh()
 }
 
 // SetBookmarks устанавливает закладки
 func (w *LineNumbersWidget) SetBookmarks(bookmarks []int) {
 	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	w.bookmarks = make(map[int]bool)
 	for _, line := range bookmarks {
 		w.bookmarks[line] = true
 	}
 
 	w.clearCache()
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.mutex.Unlock()
+
+	w.Refresh()
 }
 
 // SetLintErrors устанавливает ошибки линтера
 func (w *LineNumbersWidget) SetLintErrors(errors map[int]string) {
 	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	w.lintErrors = errors
 	w.clearCache()
+	w.mutex.Unlock()
 
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.Refresh()
 }
 
 // SetCurrentLine устанавливает текущую строку
 func (w *LineNumbersWidget) SetCurrentLine(line int) {
 	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	if w.currentLine == line {
+		w.mutex.Unlock()
 		return
 	}
 
 	w.currentLine = line
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.mutex.Unlock()
+
+	w.Refresh()
 }
 
 // SetOnLineClicked устанавливает обработчик клика по номеру строки

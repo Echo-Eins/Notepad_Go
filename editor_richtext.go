@@ -188,16 +188,13 @@ func (w *EditableRichTextWidget) GetText() string {
 // SetSyntaxLexer устанавливает лексер для подсветки синтаксиса
 func (w *EditableRichTextWidget) SetSyntaxLexer(lexer chroma.Lexer, style *chroma.Style) {
 	w.syntaxMutex.Lock()
-	defer w.syntaxMutex.Unlock()
-
 	w.lexer = lexer
 	w.syntaxStyle = style
 	w.clearRenderCache()
 	w.applySyntaxHighlighting()
+	w.syntaxMutex.Unlock()
 
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.Refresh()
 }
 
 // EnableSyntax включает/выключает подсветку синтаксиса
@@ -207,9 +204,7 @@ func (w *EditableRichTextWidget) EnableSyntax(enabled bool) {
 	w.syntaxMutex.Unlock()
 
 	w.clearRenderCache()
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.Refresh()
 }
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
