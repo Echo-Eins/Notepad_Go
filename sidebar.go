@@ -283,8 +283,8 @@ func NewSidebar(config *Config, window fyne.Window) *SidebarWidget {
 		sortAscending: true,
 	}
 
-	sidebar.ExtendBaseWidget(sidebar)
 	sidebar.setupComponents()
+	sidebar.ExtendBaseWidget(sidebar)
 	sidebar.startRefreshWorker()
 
 	return sidebar

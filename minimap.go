@@ -222,9 +222,9 @@ func NewMinimap(editor *EditorWidget) *MinimapWidget {
 		updateChan:      make(chan MinimapUpdate, 100),
 	}
 
-	minimap.ExtendBaseWidget(minimap)
 	minimap.SetupColors()
 	minimap.setupComponents()
+	minimap.ExtendBaseWidget(minimap)
 	minimap.startUpdateWorker()
 
 	// Добавляем валидацию после инициализации

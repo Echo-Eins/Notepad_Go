@@ -550,11 +550,14 @@ func NewEditor(config *Config) *EditorWidget {
 		cursors:          []TextPosition{},
 	}
 
-	editor.ExtendBaseWidget(editor)
+	// ✅ FIX: Сначала создаем ВСЕ компоненты (включая mainContainer)
 	editor.setupComponents()
 	editor.setupSyntaxHighlighter()
 	editor.setupAutoSave()
 	editor.bindEvents()
+
+	// ✅ FIX: ПОТОМ регистрируем в Fyne (CreateRenderer может быть вызван)
+	editor.ExtendBaseWidget(editor)
 
 	return editor
 }
@@ -1036,13 +1039,13 @@ func (e *EditorWidget) updateDisplay() {
 	}
 
 	// Обновляем номера строк и содержимое в главном потоке UI
-	fyne.Do(func() {
-		if e.lineNumbersWidget != nil {
-			e.updateLineNumbers()
-		}
-		e.editableRichText.Refresh()
-		e.editableRichText.richText.Refresh()
-	})
+	// ✅ FIX: Убираем fyne.Do (уже в UI thread) и двойной refresh
+	if e.lineNumbersWidget != nil {
+		lineCount := len(strings.Split(e.textContent, "\n"))
+		e.lineNumbersWidget.SetTotalLines(lineCount)
+	}
+	// Только один refresh (внутренний richText обновится автоматически)
+	e.editableRichText.Refresh()
 }
 
 // Дополнительные методы для поддержки HotkeyManager
@@ -1670,19 +1673,16 @@ func (e *EditorWidget) SetVimMode(mode VimMode) {
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
 func (e *EditorWidget) applySyntaxHighlighting() {
-	// Всегда синхронизируем Entry с текущим текстом
-	fyne.Do(func() {
-		e.editableRichText.SetText(e.textContent)
-	})
+	// ✅ FIX: SetText безопасен из любого thread (не нужен fyne.Do)
+	e.editableRichText.SetText(e.textContent)
 
 	if e.config != nil && !e.config.Editor.SyntaxHighlighting {
 		e.syntaxTokens = nil
-		fyne.Do(func() {
-			e.editableRichText.richText.Segments = []widget.RichTextSegment{
-				&widget.TextSegment{Text: e.textContent},
-			}
-			e.editableRichText.richText.Refresh()
-		})
+		// Просто обновляем - Refresh безопасен
+		e.editableRichText.richText.Segments = []widget.RichTextSegment{
+			&widget.TextSegment{Text: e.textContent},
+		}
+		e.editableRichText.richText.Refresh()
 		return
 	}
 
@@ -2612,6 +2612,10 @@ func (e *EditorWidget) handleExternalFileChange() {
 
 // CreateObject реализует интерфейс fyne.Widget
 func (e *EditorWidget) CreateRenderer() fyne.WidgetRenderer {
+	// ✅ FIX: Защита от nil mainContainer (на случай race condition)
+	if e.mainContainer == nil {
+		e.mainContainer = container.NewMax()
+	}
 	return widget.NewSimpleRenderer(e.mainContainer)
 }
 

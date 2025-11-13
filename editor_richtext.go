@@ -156,25 +156,26 @@ func (w *EditableRichTextWidget) CreateRenderer() fyne.WidgetRenderer {
 }
 
 // SetText устанавливает текст
+// Safe to call from any goroutine
 func (w *EditableRichTextWidget) SetText(text string) {
+	// ✅ FIX: Короткая критическая секция (только изменение данных)
 	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	w.text = text
 	w.lines = strings.Split(text, "\n")
 	if len(w.lines) == 0 {
 		w.lines = []string{""}
 	}
-
 	w.clearRenderCache()
+	w.mutex.Unlock()
+
+	// ✅ FIX: Долгие операции БЕЗ mutex
 	w.applySyntaxHighlighting()
 
-	fyne.Do(func() {
-		w.Refresh()
-		if w.onChanged != nil {
-			w.onChanged(text)
-		}
-	})
+	// ✅ FIX: Refresh безопасен из любого thread (не нужен fyne.Do!)
+	w.Refresh()
+	if w.onChanged != nil {
+		w.onChanged(text)
+	}
 }
 
 // GetText возвращает текущий текст
@@ -187,16 +188,13 @@ func (w *EditableRichTextWidget) GetText() string {
 // SetSyntaxLexer устанавливает лексер для подсветки синтаксиса
 func (w *EditableRichTextWidget) SetSyntaxLexer(lexer chroma.Lexer, style *chroma.Style) {
 	w.syntaxMutex.Lock()
-	defer w.syntaxMutex.Unlock()
-
 	w.lexer = lexer
 	w.syntaxStyle = style
 	w.clearRenderCache()
 	w.applySyntaxHighlighting()
+	w.syntaxMutex.Unlock()
 
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.Refresh()
 }
 
 // EnableSyntax включает/выключает подсветку синтаксиса
@@ -206,9 +204,7 @@ func (w *EditableRichTextWidget) EnableSyntax(enabled bool) {
 	w.syntaxMutex.Unlock()
 
 	w.clearRenderCache()
-	fyne.Do(func() {
-		w.Refresh()
-	})
+	w.Refresh()
 }
 
 // applySyntaxHighlighting применяет подсветку синтаксиса
